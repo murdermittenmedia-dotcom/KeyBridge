@@ -132,6 +132,28 @@ namespace tunerite
                 score += onset[i] * onset[i - static_cast<size_t> (lag)];
             candidates.push_back ({ 60.0 * sampleRate / (static_cast<double> (onsetHop) * lag), score / static_cast<double> (onset.size() - static_cast<size_t> (lag)) });
         }
+        // Preserve raw onset scores while penalising longer periodic multiples below.
+        std::vector<double> rawTempoScores;
+        rawTempoScores.reserve (candidates.size());
+        for (const auto& candidate : candidates) rawTempoScores.push_back (candidate.score);
+
+        // A long autocorrelation lag can be an integer multiple of a shorter repeating beat period.
+        // Penalise those multiples only when a corresponding shorter lag carries nearly the same onset evidence.
+        for (auto& candidate : candidates)
+        {
+            const auto lag = static_cast<int> (std::round (60.0 * sampleRate / (static_cast<double> (onsetHop) * candidate.bpm)));
+            if (candidate.score <= 0.0 || lag <= minLag) continue;
+            double strongestSubperiod = 0.0;
+            for (int divisor = 2; divisor <= 4; ++divisor)
+            {
+                const auto subLag = static_cast<int> (std::round (static_cast<double> (lag) / divisor));
+                if (subLag < minLag || subLag >= lag || subLag > maxLag) continue;
+                strongestSubperiod = std::max (strongestSubperiod, rawTempoScores[static_cast<size_t> (subLag - minLag)]);
+            }
+            const auto subperiodRatio = strongestSubperiod / candidate.score;
+            if (subperiodRatio >= 0.75)
+                candidate.score *= std::max (0.20, 1.0 - 0.60 * subperiodRatio);
+        }
         std::sort (candidates.begin(), candidates.end(), [] (const auto& a, const auto& b) { return a.score > b.score; });
         for (const auto& candidate : candidates)
         {
