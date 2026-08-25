@@ -35,15 +35,15 @@ jobs:
       - name: Build VST3
         shell: pwsh
         run: |
-          cmake --build build-msvc --config Release --target KeyBridge_VST3 --parallel
+          cmake --build build-msvc --config Release --target Tunerite_VST3 --parallel
           if ($LASTEXITCODE -ne 0) { throw "MSVC VST3 build failed with exit code $LASTEXITCODE" }
-          $vst3 = "build-msvc/KeyBridge_artefacts/Release/VST3/KeyBridge.vst3"
+          $vst3 = "build-msvc/Tunerite_artefacts/Release/VST3/Tunerite.vst3"
           if (!(Test-Path $vst3)) { throw "VST3 bundle was not produced at $vst3" }
 
       - name: Normalize and validate VST3 manifest
         shell: pwsh
         run: |
-          $manifest = "build-msvc/KeyBridge_artefacts/Release/VST3/KeyBridge.vst3/Contents/Resources/moduleinfo.json"
+          $manifest = "build-msvc/Tunerite_artefacts/Release/VST3/Tunerite.vst3/Contents/Resources/moduleinfo.json"
           if (!(Test-Path $manifest)) { throw "VST3 moduleinfo.json was not produced at $manifest" }
           $raw = Get-Content $manifest -Raw
           $strict = [regex]::Replace($raw, ',(?=\s*[}\]])', '')
@@ -58,7 +58,7 @@ jobs:
       - name: Verify VST3 exports
         shell: pwsh
         run: |
-          $binary = "build-msvc/KeyBridge_artefacts/Release/VST3/KeyBridge.vst3/Contents/x86_64-win/KeyBridge.vst3"
+          $binary = "build-msvc/Tunerite_artefacts/Release/VST3/Tunerite.vst3/Contents/x86_64-win/Tunerite.vst3"
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $vsroot = & $vswhere -latest -products * -property installationPath
           $dumpbin = Get-ChildItem "$vsroot\VC\Tools\MSVC" -Filter dumpbin.exe -Recurse | Where-Object { $_.FullName -match "Hostx64\\x64" } | Select-Object -First 1
@@ -75,11 +75,11 @@ jobs:
           $project = "KeyBridge-Windows-CI-0.1.1"
           $stage = "$project/installer/stage"
           New-Item -ItemType Directory -Force -Path $stage | Out-Null
-          Remove-Item "$stage/KeyBridge.vst3" -Recurse -Force -ErrorAction SilentlyContinue
-          Copy-Item -Recurse "build-msvc/KeyBridge_artefacts/Release/VST3/KeyBridge.vst3" "$stage/KeyBridge.vst3"
+          Remove-Item "$stage/Tunerite.vst3" -Recurse -Force -ErrorAction SilentlyContinue
+          Copy-Item -Recurse "build-msvc/Tunerite_artefacts/Release/VST3/Tunerite.vst3" "$stage/Tunerite.vst3"
           Copy-Item "$project/README.md" "$stage/README.txt" -Force
-          if (!(Test-Path "$stage/KeyBridge.vst3/Contents/x86_64-win/KeyBridge.vst3")) { throw "Complete x86_64 VST3 binary is missing from staged bundle" }
-          if (!(Test-Path "$stage/KeyBridge.vst3/Contents/Resources")) { throw "VST3 Resources directory is missing from staged bundle" }
+          if (!(Test-Path "$stage/Tunerite.vst3/Contents/x86_64-win/Tunerite.vst3")) { throw "Complete x86_64 VST3 binary is missing from staged bundle" }
+          if (!(Test-Path "$stage/Tunerite.vst3/Contents/Resources")) { throw "VST3 Resources directory is missing from staged bundle" }
           New-Item -ItemType Directory -Force -Path dist | Out-Null
 
       - name: Install Inno Setup
@@ -90,27 +90,27 @@ jobs:
         shell: pwsh
         run: |
           & "C:/Program Files (x86)/Inno Setup 6/ISCC.exe" "KeyBridge-Windows-CI-0.1.1/installer/KeyBridge.iss"
-          if (!(Test-Path "dist/KeyBridge-Setup-0.1.1.exe")) { throw "Expected installer dist/KeyBridge-Setup-0.1.1.exe was not produced" }
+          if (!(Test-Path "dist/Tunerite-Setup-0.1.1.exe")) { throw "Expected installer dist/Tunerite-Setup-0.1.1.exe was not produced" }
 
       - name: Package VST3 bundles
         shell: pwsh
         run: |
-          $bundle = "KeyBridge-Windows-CI-0.1.1/installer/stage/KeyBridge.vst3"
-          Compress-Archive -Path $bundle -DestinationPath "dist/KeyBridge-VST3-Bundle-0.1.1.zip" -Force
-          $noManifest = "dist/KeyBridge.vst3-no-manifest"
+          $bundle = "KeyBridge-Windows-CI-0.1.1/installer/stage/Tunerite.vst3"
+          Compress-Archive -Path $bundle -DestinationPath "dist/Tunerite-VST3-Bundle-0.1.1.zip" -Force
+          $noManifest = "dist/Tunerite.vst3-no-manifest"
           Copy-Item -Recurse $bundle $noManifest -Force
           Remove-Item "$noManifest/Contents/Resources/moduleinfo.json" -Force
-          Compress-Archive -Path $noManifest -DestinationPath "dist/KeyBridge-VST3-Bundle-NoManifest-0.1.1.zip" -Force
+          Compress-Archive -Path $noManifest -DestinationPath "dist/Tunerite-VST3-Bundle-NoManifest-0.1.1.zip" -Force
           Remove-Item $noManifest -Recurse -Force
-          if (!(Test-Path "dist/KeyBridge-VST3-Bundle-0.1.1.zip")) { throw "Expected strict-manifest VST3 bundle ZIP was not produced" }
-          if (!(Test-Path "dist/KeyBridge-VST3-Bundle-NoManifest-0.1.1.zip")) { throw "Expected no-manifest VST3 bundle ZIP was not produced" }
+          if (!(Test-Path "dist/Tunerite-VST3-Bundle-0.1.1.zip")) { throw "Expected strict-manifest VST3 bundle ZIP was not produced" }
+          if (!(Test-Path "dist/Tunerite-VST3-Bundle-NoManifest-0.1.1.zip")) { throw "Expected no-manifest VST3 bundle ZIP was not produced" }
 
       - name: Upload Windows packages
         uses: actions/upload-artifact@v4
         with:
-          name: KeyBridge-Windows-Packages-0.1.1
+          name: Tunerite-Windows-Packages-0.1.1
           path: |
-            dist/KeyBridge-Setup-0.1.1.exe
-            dist/KeyBridge-VST3-Bundle-0.1.1.zip
-            dist/KeyBridge-VST3-Bundle-NoManifest-0.1.1.zip
+            dist/Tunerite-Setup-0.1.1.exe
+            dist/Tunerite-VST3-Bundle-0.1.1.zip
+            dist/Tunerite-VST3-Bundle-NoManifest-0.1.1.zip
           if-no-files-found: error

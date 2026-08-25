@@ -24,13 +24,13 @@ KeyBridgeAudioProcessorEditor::KeyBridgeAudioProcessorEditor (KeyBridgeAudioProc
         addAndMakeVisible (label);
     };
 
-    setupLabel (title, "KEYBRIDGE  /  VOCAL FIT BETA", 22.0f, juce::Justification::centredLeft);
+    setupLabel (title, "TUNERITE  /  BY MURDERMITTENMEDIA", 22.0f, juce::Justification::centredLeft);
     setupLabel (keyLabel, "Key: Listening", 26.0f, juce::Justification::centred);
     setupLabel (bpmLabel, "Project BPM: --   |   Detected Audio BPM: --", 15.0f, juce::Justification::centred);
     setupLabel (confidenceLabel, "Key confidence: --   |   BPM confidence: --", 13.0f, juce::Justification::centred);
     setupLabel (notesLabel, "Scale notes: listening...", 15.0f, juce::Justification::centredLeft);
-    setupLabel (recommendationLabel, "Vocal Fit: choose a profile and range", 16.0f, juce::Justification::centredLeft);
-    setupLabel (guidanceLabel, "Safe notes remain inside the detected scale. Expressive notes add color; tension notes should resolve.", 12.0f, juce::Justification::centredLeft);
+    setupLabel (recommendationLabel, "Vocal Fit guidance: choose a profile and range", 16.0f, juce::Justification::centredLeft);
+    setupLabel (guidanceLabel, "Beat-only guidance: Tunerite does not analyze or modify vocals. Safe notes remain inside the detected scale.", 12.0f, juce::Justification::centredLeft);
 
     const auto setupCaption = [this] (juce::Label& label, const juce::String& text)
     {
@@ -44,6 +44,8 @@ KeyBridgeAudioProcessorEditor::KeyBridgeAudioProcessorEditor (KeyBridgeAudioProc
     setupCaption (genreLabel, "GENRE");
     setupCaption (deliveryLabel, "DELIVERY");
     setupCaption (vibeLabel, "VIBE");
+    setupCaption (displayLabel, "VIEW");
+    setupCaption (themeLabel, "THEME");
 
     const auto addOptions = [] (juce::ComboBox& box, std::initializer_list<const char*> options)
     {
@@ -55,11 +57,14 @@ KeyBridgeAudioProcessorEditor::KeyBridgeAudioProcessorEditor (KeyBridgeAudioProc
     addOptions (genreBox, { "Rap", "Melodic Rap", "Trap", "R&B", "Pop", "Gospel", "Soul", "Hip-Hop" });
     addOptions (deliveryBox, { "Rap", "Melodic", "Sung", "Spoken", "Chant" });
     addOptions (vibeBox, { "Happy", "Sad", "Dark", "Emotional", "Energetic", "Romantic", "Aggressive", "Confident", "Laid-back" });
+    addOptions (displayModeBox, { "Full", "Compact", "Engineering" });
+    addOptions (themeBox, { "Dark", "Slate", "High Contrast" });
     profileBox.setSelectedId (1); genreBox.setSelectedId (3); deliveryBox.setSelectedId (2); vibeBox.setSelectedId (5);
-    for (auto* box : { &profileBox, &genreBox, &deliveryBox, &vibeBox })
+    displayModeBox.setSelectedId (1); themeBox.setSelectedId (1);
+    for (auto* box : { &profileBox, &genreBox, &deliveryBox, &vibeBox, &displayModeBox, &themeBox })
     {
         addAndMakeVisible (*box);
-        box->onChange = [this] { refreshRecommendation(); };
+        box->onChange = [this] { refreshRecommendation(); repaint(); };
     }
 
     const auto setupRange = [this] (juce::Slider& slider, double value)
@@ -74,10 +79,11 @@ KeyBridgeAudioProcessorEditor::KeyBridgeAudioProcessorEditor (KeyBridgeAudioProc
     setupRange (lowNoteSlider, 48.0);
     setupRange (highNoteSlider, 72.0);
 
+    analyzeButton.setButtonText ("ANALYZE CURRENT AUDIO");
     addAndMakeVisible (analyzeButton);
     addAndMakeVisible (holdButton);
     addAndMakeVisible (lockButton);
-    analyzeButton.onClick = [this] { processor.setAnalysisEnabled (true); };
+    analyzeButton.onClick = [this] { processor.startFreshAnalysis(); };
     holdButton.onClick = [this] { processor.setAnalysisEnabled (false); };
     lockButton.onClick = [this] { processor.setAnalysisEnabled (false); };
 
@@ -106,7 +112,10 @@ void KeyBridgeAudioProcessorEditor::parentHierarchyChanged()
 
 void KeyBridgeAudioProcessorEditor::paint (juce::Graphics& g)
 {
-    g.fillAll (juce::Colour (0xff111318));
+    const auto theme = themeBox.getText();
+    const auto background = theme == "High Contrast" ? juce::Colour (0xff050505)
+                            : (theme == "Slate" ? juce::Colour (0xff17212b) : juce::Colour (0xff111318));
+    g.fillAll (background);
     g.setColour (juce::Colour (0xffa51f3d));
     g.fillRect (0, 0, getWidth(), 5);
     g.setColour (juce::Colour (0xff20242d));
@@ -115,7 +124,8 @@ void KeyBridgeAudioProcessorEditor::paint (juce::Graphics& g)
     g.fillRoundedRectangle (16.0f, 188.0f, getWidth() - 32.0f, 165.0f, 10.0f);
     g.setColour (juce::Colours::grey);
     g.setFont (juce::Font (11.0f));
-    g.drawText ("REFERENCE NOTE BUTTONS", 28, 425, 260, 18, juce::Justification::left);
+    g.drawText ("DISPLAY OPTIONS", 28, 425, 180, 18, juce::Justification::left);
+    g.drawText ("REFERENCE NOTE BUTTONS", 28, 458, 260, 18, juce::Justification::left);
     g.drawText ("TRANSPARENT ANALYSIS  /  NO AUTO-ADJUSTMENTS", 420, 425, 310, 18, juce::Justification::right);
 }
 
@@ -128,6 +138,10 @@ void KeyBridgeAudioProcessorEditor::resized()
     notesLabel.setBounds (30, 125, 700, 25);
     recommendationLabel.setBounds (30, 198, 700, 30);
     guidanceLabel.setBounds (30, 230, 700, 22);
+    displayLabel.setBounds (30, 365, 80, 18);
+    themeLabel.setBounds (200, 365, 80, 18);
+    displayModeBox.setBounds (30, 386, 130, 26);
+    themeBox.setBounds (200, 386, 130, 26);
 
     profileLabel.setBounds (30, 263, 125, 18);
     rangeLabel.setBounds (170, 263, 180, 18);
@@ -141,11 +155,11 @@ void KeyBridgeAudioProcessorEditor::resized()
     deliveryBox.setBounds (475, 284, 100, 26);
     vibeBox.setBounds (585, 284, 140, 26);
 
-    analyzeButton.setBounds (30, 322, 95, 28);
-    holdButton.setBounds (132, 322, 80, 28);
-    lockButton.setBounds (219, 322, 80, 28);
+    analyzeButton.setBounds (30, 322, 170, 28);
+    holdButton.setBounds (207, 322, 80, 28);
+    lockButton.setBounds (294, 322, 80, 28);
     for (int i = 0; i < 12; ++i)
-        noteButtons[static_cast<size_t> (i)].setBounds (30 + i * 58, 450, 52, 38);
+        noteButtons[static_cast<size_t> (i)].setBounds (30 + i * 58, 482, 52, 38);
 }
 
 void KeyBridgeAudioProcessorEditor::timerCallback()
@@ -159,7 +173,9 @@ void KeyBridgeAudioProcessorEditor::timerCallback()
     const auto modeName = mode == 0 ? "major" : "minor";
     const auto& scale = mode == 0 ? majorScale : minorScale;
 
-    keyLabel.setText (juce::String ("Key: ") + noteNames[static_cast<size_t> (key)] + " " + modeName, juce::dontSendNotification);
+    keyLabel.setText (processor.hasStableDetection()
+        ? juce::String ("Key: ") + noteNames[static_cast<size_t> (key)] + " " + modeName
+        : juce::String ("Key: Analyzing beat..."), juce::dontSendNotification);
     bpmLabel.setText ("Project BPM: " + (host > 0.0 ? juce::String (host, 2) : "--")
                       + "   |   Detected Audio BPM: " + (detected > 0.0 ? juce::String (detected, 2) : "--"), juce::dontSendNotification);
     confidenceLabel.setText ("Key confidence: " + juce::String (keyConfidence * 100.0f, 0) + "%   |   BPM confidence: "
@@ -170,7 +186,7 @@ void KeyBridgeAudioProcessorEditor::timerCallback()
     juce::String scaleText = "Scale notes: ";
     for (int i = 0; i < 7; ++i)
         scaleText += juce::String (noteNames[static_cast<size_t> ((key + scale[static_cast<size_t> (i)]) % 12)]) + (i == 6 ? juce::String() : juce::String ("  "));
-    notesLabel.setText (scaleText, juce::dontSendNotification);
+    notesLabel.setText (processor.hasStableDetection() ? scaleText : "Scale notes: waiting for a stable beat key...", juce::dontSendNotification);
     refreshRecommendation();
 }
 
@@ -190,6 +206,13 @@ void KeyBridgeAudioProcessorEditor::refreshRecommendation()
     const auto safe2 = juce::jlimit (low, high, preferred + (mode == 0 ? 4 : 3));
     const auto expressive = juce::jlimit (low, high, preferred + 1);
     const auto tension = juce::jlimit (low, high, preferred + 6);
+
+    if (! processor.hasStableDetection())
+    {
+        recommendationLabel.setText ("VOCAL FIT GUIDANCE: waiting for a stable beat key. Tunerite does not analyze vocals.", juce::dontSendNotification);
+        guidanceLabel.setText ("Play the beat, then press ANALYZE CURRENT AUDIO to begin a fresh beat-only measurement.", juce::dontSendNotification);
+        return;
+    }
 
     recommendationLabel.setText (juce::String ("STRONGEST: ") + noteNames[static_cast<size_t> (preferred % 12)] + juce::String (preferred)
         + "   |   SAFE: " + noteNames[static_cast<size_t> (safe1 % 12)] + ", " + noteNames[static_cast<size_t> (safe2 % 12)]

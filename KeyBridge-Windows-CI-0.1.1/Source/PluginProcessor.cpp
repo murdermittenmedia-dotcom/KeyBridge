@@ -30,6 +30,21 @@ void KeyBridgeAudioProcessor::prepareToPlay (double newSampleRate, int)
     samplesSinceOnset = 0;
     adaptiveEnergy = 0.0001f;
     chroma.fill (0.0f);
+    energyHistory.fill (0.0f);
+    energyHistoryWrite = 0;
+    energyHistoryCount = 0;
+    candidateKey = 0;
+    candidateMode = 0;
+    candidateWins = 0;
+    stableKey = 0;
+    stableMode = 0;
+    hasStableKey = false;
+    hasStableDetectionFlag.store (false, std::memory_order_relaxed);
+    detectedKey.store (0, std::memory_order_relaxed);
+    detectedMode.store (0, std::memory_order_relaxed);
+    detectedBpm.store (0.0, std::memory_order_relaxed);
+    keyConfidence.store (0.0f, std::memory_order_relaxed);
+    bpmConfidence.store (0.0f, std::memory_order_relaxed);
     analysisFrames.store (0, std::memory_order_relaxed);
     inputLevel.store (0.0f, std::memory_order_relaxed);
     std::fill (fftData.get(), fftData.get() + 2048, 0.0f);
@@ -63,6 +78,25 @@ void KeyBridgeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
         return;
     if (!analysisEnabled.load (std::memory_order_relaxed))
         return;
+
+    if (resetRequested.exchange (false, std::memory_order_acq_rel))
+    {
+        fftFill = 0;
+        analysisFrameCount = 0;
+        previousEnergy = 0.0f;
+        samplesSinceOnset = 0;
+        adaptiveEnergy = 0.0001f;
+        chroma.fill (0.0f);
+        energyHistory.fill (0.0f);
+        energyHistoryWrite = 0;
+        energyHistoryCount = 0;
+        candidateWins = 0;
+        hasStableKey = false;
+        hasStableDetectionFlag.store (false, std::memory_order_relaxed);
+        detectedBpm.store (0.0, std::memory_order_relaxed);
+        keyConfidence.store (0.0f, std::memory_order_relaxed);
+        bpmConfidence.store (0.0f, std::memory_order_relaxed);
+    }
 
     const auto* left = buffer.getReadPointer (0);
     const auto* right = buffer.getNumChannels() > 1 ? buffer.getReadPointer (1) : left;
@@ -98,6 +132,11 @@ void KeyBridgeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
                 samplesSinceOnset = 0;
             }
             previousEnergy = energy;
+            energyHistory[static_cast<size_t> (energyHistoryWrite)] = energy;
+            energyHistoryWrite = (energyHistoryWrite + 1) % static_cast<int> (energyHistory.size());
+            energyHistoryCount = juce::jmin (energyHistoryCount + 1, static_cast<int> (energyHistory.size()));
+            if (energyHistoryCount >= 48)
+                estimateAudioBpm();
 
             std::fill (fftData.get() + fftFill, fftData.get() + 2048, 0.0f);
             analyzeFrame();
@@ -107,6 +146,46 @@ void KeyBridgeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
 
     inputLevel.store (0.85f * inputLevel.load (std::memory_order_relaxed) + 0.15f * blockPeak, std::memory_order_relaxed);
     analysisFrames.fetch_add (1, std::memory_order_relaxed);
+}
+
+void KeyBridgeAudioProcessor::estimateAudioBpm()
+{
+    const auto frameSeconds = 1024.0 / sampleRate;
+    float bestCorrelation = 0.0f;
+    int bestLag = 0;
+    const auto newest = energyHistoryWrite - 1;
+    for (int lag = 14; lag <= 44; ++lag)
+    {
+        const auto usable = juce::jmin (energyHistoryCount - lag, 96);
+        if (usable < 24)
+            continue;
+        float mean = 0.0f;
+        for (int i = 0; i < usable; ++i)
+            mean += energyHistory[static_cast<size_t> ((newest - i + 128) % 128)];
+        mean /= static_cast<float> (usable);
+        float numerator = 0.0f, denomA = 0.0f, denomB = 0.0f;
+        for (int i = 0; i < usable; ++i)
+        {
+            const auto a = energyHistory[static_cast<size_t> ((newest - i + 128) % 128)] - mean;
+            const auto b = energyHistory[static_cast<size_t> ((newest - i - lag + 256) % 128)] - mean;
+            numerator += a * b;
+            denomA += a * a;
+            denomB += b * b;
+        }
+        const auto correlation = numerator / std::sqrt (juce::jmax (1.0e-12f, denomA * denomB));
+        if (correlation > bestCorrelation)
+        {
+            bestCorrelation = correlation;
+            bestLag = lag;
+        }
+    }
+    if (bestLag > 0 && bestCorrelation > 0.18f)
+    {
+        const auto bpm = 60.0 / (bestLag * frameSeconds);
+        const auto old = detectedBpm.load (std::memory_order_relaxed);
+        detectedBpm.store (old <= 0.0 ? bpm : 0.75 * old + 0.25 * bpm, std::memory_order_relaxed);
+        bpmConfidence.store (juce::jlimit (0.0f, 1.0f, bestCorrelation), std::memory_order_relaxed);
+    }
 }
 
 void KeyBridgeAudioProcessor::analyzeFrame()
@@ -149,10 +228,37 @@ void KeyBridgeAudioProcessor::analyzeFrame()
         if (minor > best) { second = best; best = minor; bestKey = root; bestMode = 1; }
     }
 
-    detectedKey.store (bestKey, std::memory_order_relaxed);
-    detectedMode.store (bestMode, std::memory_order_relaxed);
-    keyConfidence.store (juce::jlimit (0.0f, 1.0f, (best - juce::jmax (0.0f, second)) * 2.0f), std::memory_order_relaxed);
+    const auto confidence = juce::jlimit (0.0f, 1.0f, (best - juce::jmax (0.0f, second)) * 2.0f);
+    if (bestKey == candidateKey && bestMode == candidateMode)
+        ++candidateWins;
+    else
+    {
+        candidateKey = bestKey;
+        candidateMode = bestMode;
+        candidateWins = 1;
+    }
+
+    const auto currentKey = detectedKey.load (std::memory_order_relaxed);
+    const auto currentMode = detectedMode.load (std::memory_order_relaxed);
+    const auto isCurrentCandidate = bestKey == currentKey && bestMode == currentMode;
+    if ((! hasStableKey && candidateWins >= 2 && confidence >= 0.08f)
+        || (hasStableKey && candidateWins >= 3 && confidence >= 0.12f && ! isCurrentCandidate))
+    {
+        stableKey = bestKey;
+        stableMode = bestMode;
+        hasStableKey = true;
+        detectedKey.store (stableKey, std::memory_order_relaxed);
+        detectedMode.store (stableMode, std::memory_order_relaxed);
+        hasStableDetectionFlag.store (true, std::memory_order_relaxed);
+    }
+    keyConfidence.store (confidence, std::memory_order_relaxed);
     for (auto& value : chroma) value *= 0.65f;
+}
+
+void KeyBridgeAudioProcessor::startFreshAnalysis() noexcept
+{
+    resetRequested.store (true, std::memory_order_release);
+    analysisEnabled.store (true, std::memory_order_release);
 }
 
 void KeyBridgeAudioProcessor::requestReferenceTone (int) noexcept

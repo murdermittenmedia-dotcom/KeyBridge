@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(KeyBridge VERSION 0.1.1)
+project(Tunerite VERSION 0.1.1)
 
 if (MSVC)
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
@@ -7,13 +7,13 @@ endif()
 
 add_subdirectory(JUCE)
 
-juce_add_plugin(KeyBridge
-    COMPANY_NAME "KeyBridge"
-    PLUGIN_MANUFACTURER_CODE KBrg
-    PLUGIN_CODE KBr1
+juce_add_plugin(Tunerite
+    COMPANY_NAME "MurderMittenMedia"
+    PLUGIN_MANUFACTURER_CODE Mmm1
+    PLUGIN_CODE Tnr1
     FORMATS VST3
-    PRODUCT_NAME "KeyBridge"
-    DESCRIPTION "Transparent key, BPM, and Vocal Fit analysis"
+    PRODUCT_NAME "Tunerite"
+    DESCRIPTION "Transparent beat key and BPM analyzer with Vocal Fit guidance"
     IS_SYNTH FALSE
     NEEDS_MIDI_INPUT FALSE
     NEEDS_MIDI_OUTPUT FALSE
@@ -23,20 +23,20 @@ juce_add_plugin(KeyBridge
     COPY_PLUGIN_AFTER_BUILD FALSE
 )
 
-juce_generate_juce_header(KeyBridge)
+juce_generate_juce_header(Tunerite)
 
-target_sources(KeyBridge PRIVATE
+target_sources(Tunerite PRIVATE
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
 )
 
-target_compile_definitions(KeyBridge PRIVATE
+target_compile_definitions(Tunerite PRIVATE
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
     JUCE_VST3_CAN_REPLACE_VST2=0
 )
 
-target_link_libraries(KeyBridge PRIVATE
+target_link_libraries(Tunerite PRIVATE
     juce::juce_audio_utils
     juce::juce_dsp
     juce::juce_recommended_config_flags
@@ -44,6 +44,6 @@ target_link_libraries(KeyBridge PRIVATE
 )
 
 if (MSVC)
-    target_compile_options(KeyBridge PRIVATE /W4 /permissive- /EHsc)
-    set_property(TARGET KeyBridge PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    target_compile_options(Tunerite PRIVATE /W4 /permissive- /EHsc)
+    set_property(TARGET Tunerite PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
