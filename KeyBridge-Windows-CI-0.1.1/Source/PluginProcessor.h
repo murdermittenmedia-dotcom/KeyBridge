@@ -39,6 +39,11 @@ public:
     float getBpmConfidence() const noexcept { return bpmConfidence.load (std::memory_order_relaxed); }
     float getInputLevel() const noexcept { return inputLevel.load (std::memory_order_relaxed); }
     int getAnalysisFrames() const noexcept { return analysisFrames.load (std::memory_order_relaxed); }
+    int getVocalFrames() const noexcept { return vocalFrames.load (std::memory_order_relaxed); }
+    float getBeatRms() const noexcept { return beatRms.load (std::memory_order_relaxed); }
+    float getVocalRms() const noexcept { return vocalRms.load (std::memory_order_relaxed); }
+    float getAnalysisDuration() const noexcept { return analysisDuration.load (std::memory_order_relaxed); }
+    float getVocalVoicedPercent() const noexcept { return vocalVoicedPercent.load (std::memory_order_relaxed); }
     bool isAnalysisActive() const noexcept { return analysisEnabled.load (std::memory_order_relaxed); }
     float getCaptureProgress() const noexcept { return captureProgress.load (std::memory_order_relaxed); }
     float getVocalInputLevel() const noexcept { return vocalInputLevel.load (std::memory_order_relaxed); }
@@ -105,6 +110,11 @@ private:
     std::atomic<float> keyConfidence { 0.0f };
     std::atomic<float> bpmConfidence { 0.0f };
     std::atomic<float> inputLevel { 0.0f };
+    std::atomic<float> beatRms { 0.0f };
+    std::atomic<float> vocalRms { 0.0f };
+    std::atomic<float> analysisDuration { 0.0f };
+    std::atomic<float> vocalVoicedPercent { 0.0f };
+    std::atomic<int> vocalFrames { 0 };
     std::atomic<float> vocalInputLevel { 0.0f };
     std::atomic<float> vocalConfidence { 0.0f };
     std::atomic<float> vocalLowestMidi { 0.0f };

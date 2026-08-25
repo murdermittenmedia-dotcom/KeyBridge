@@ -208,8 +208,10 @@ void KeyBridgeAudioProcessorEditor::timerCallback()
             bpmActionLabel.setText ("Analysis complete. Use COPY DETECTED BPM to place this value on the DAW tempo field.", juce::dontSendNotification);
     }
     confidenceLabel.setText ("Beat confidence: " + juce::String (keyConfidence * 100.0f, 0) + "% key / "
-                             + juce::String (bpmConfidence * 100.0f, 0) + "% BPM   |   Frames: "
-                             + juce::String (processor.getAnalysisFrames()), juce::dontSendNotification);
+                             + juce::String (bpmConfidence * 100.0f, 0) + "% BPM | RMS "
+                             + juce::String (processor.getBeatRms(), 3) + " | Frames "
+                             + juce::String (processor.getAnalysisFrames()) + " | Duration "
+                             + juce::String (processor.getAnalysisDuration(), 1) + "s", juce::dontSendNotification);
     const auto beatActive = processor.getInputLevel() > 0.0001f;
     const auto vocalActive = processor.getVocalInputLevel() > 0.0001f;
     beatStatusLabel.setText (beatActive ? "BEAT INPUT: ACTIVE" : "BEAT INPUT: NO SIGNAL", juce::dontSendNotification);
@@ -219,8 +221,11 @@ void KeyBridgeAudioProcessorEditor::timerCallback()
         vocalMetricsLabel.setText ("Vocal range: " + juce::String (processor.getVocalLowestMidi(), 0) + "-" + juce::String (processor.getVocalHighestMidi(), 0)
             + " MIDI | Avg: " + juce::String (processor.getVocalAverageMidi(), 0)
             + " | Pitch confidence: " + juce::String (processor.getVocalConfidence() * 100.0f, 0) + "%"
+            + " | RMS " + juce::String (processor.getVocalRms(), 3)
+            + " | Voiced: " + juce::String (processor.getVocalVoicedPercent() * 100.0f, 0) + "%"
             + " | Sustained: " + juce::String (processor.getVocalSustainedPercent() * 100.0f, 0) + "%"
             + " | Changes: " + juce::String (processor.getVocalNoteChangeSpeed(), 1) + "/sec"
+            + " | Frames: " + juce::String (processor.getVocalFrames())
             + " | " + (processor.isVocalMelodic() ? "Melodic" : "Spoken/Rap"), juce::dontSendNotification);
     }
     else
@@ -240,8 +245,13 @@ void KeyBridgeAudioProcessorEditor::refreshRecommendation()
 {
     const auto key = juce::jlimit (0, 11, processor.getDetectedKey());
     const auto mode = processor.getDetectedMode();
-    const auto low = static_cast<int> (lowNoteSlider.getValue());
-    const auto high = juce::jmax (low, static_cast<int> (highNoteSlider.getValue()));
+    auto low = static_cast<int> (lowNoteSlider.getValue());
+    auto high = juce::jmax (low, static_cast<int> (highNoteSlider.getValue()));
+    if (processor.getVocalConfidence() >= 0.45f && processor.getVocalHighestMidi() > processor.getVocalLowestMidi())
+    {
+        low = juce::jlimit (36, 84, static_cast<int> (std::lround (processor.getVocalLowestMidi())));
+        high = juce::jlimit (low, 96, static_cast<int> (std::lround (processor.getVocalHighestMidi())));
+    }
     const auto profile = profileBox.getText();
     const auto genre = genreBox.getText();
     const auto delivery = deliveryBox.getText();
