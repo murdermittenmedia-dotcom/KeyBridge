@@ -48,8 +48,11 @@ jobs:
           $raw = Get-Content $manifest -Raw
           $strict = [regex]::Replace($raw, ',(?=\s*[}\]])', '')
           Set-Content -Path $manifest -Value $strict -Encoding utf8NoBOM
-          $null = $strict | ConvertFrom-Json
-          if ($LASTEXITCODE -ne 0) { throw "moduleinfo.json is not valid strict JSON" }
+          try {
+            $null = $strict | ConvertFrom-Json -ErrorAction Stop
+          } catch {
+            throw "moduleinfo.json is not valid strict JSON: $($_.Exception.Message)"
+          }
           Write-Host "Validated strict JSON manifest: $manifest"
 
       - name: Verify VST3 exports
