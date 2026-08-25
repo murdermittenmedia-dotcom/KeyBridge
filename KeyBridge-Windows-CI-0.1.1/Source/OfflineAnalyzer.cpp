@@ -108,7 +108,7 @@ int main (int argc, char* argv[])
     {
         const juce::String argument (argv[i]);
         if (argument == "--input" && i + 1 < argc) inputPath = argv[++i];
-        else if (argument == "--mode" && i + 1 < argc) mode = argv[++i].toLowerCase();
+        else if (argument == "--mode" && i + 1 < argc) mode = juce::String (argv[++i]).toLowerCase();
         else if (argument == "--output" && i + 1 < argc) outputPrefix = argv[++i];
     }
     if (inputPath.isEmpty() || (mode != "beat" && mode != "vocal"))
