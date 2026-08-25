@@ -17,6 +17,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Checkout JUCE 7.0.12
+        uses: actions/checkout@v4
+        with:
+          repository: juce-framework/JUCE
+          ref: 7.0.12
+          path: KeyBridge-Windows-CI-0.1.1/JUCE
+          fetch-depth: 1
+
       - name: Configure MSVC x64 Release
         shell: pwsh
         run: |
