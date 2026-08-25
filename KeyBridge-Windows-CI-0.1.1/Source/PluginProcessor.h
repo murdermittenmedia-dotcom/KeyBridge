@@ -45,7 +45,7 @@ private:
     double sampleRate = 44100.0;
     static constexpr int fftOrder = 11;
     std::unique_ptr<juce::dsp::FFT> fft;
-    std::array<float, 2048> fftData{};
+    juce::HeapBlock<float, true> fftData;
     std::array<float, 12> chroma{};
     int fftFill = 0;
     int analysisFrameCount = 0;

@@ -16,18 +16,21 @@ KeyBridgeAudioProcessor::KeyBridgeAudioProcessor()
         .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       fft (std::make_unique<juce::dsp::FFT> (fftOrder))
 {
+    fftData.allocate (2048, true);
+    std::fill (fftData.get(), fftData.get() + 2048, 0.0f);
 }
 
 void KeyBridgeAudioProcessor::prepareToPlay (double newSampleRate, int)
 {
     sampleRate = juce::jmax (newSampleRate, 8000.0);
+    fftData.allocate (2048, true);
     fftFill = 0;
     analysisFrameCount = 0;
     previousEnergy = 0.0f;
     samplesSinceOnset = 0;
     adaptiveEnergy = 0.0001f;
     chroma.fill (0.0f);
-    fftData.fill (0.0f);
+    std::fill (fftData.get(), fftData.get() + 2048, 0.0f);
 }
 
 void KeyBridgeAudioProcessor::releaseResources()
@@ -65,10 +68,10 @@ void KeyBridgeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
     for (int i = 0; i < buffer.getNumSamples(); ++i)
     {
         const auto sample = 0.5f * (left[i] + right[i]);
-        fftData[static_cast<size_t> (fftFill++)] = sample;
+        fftData[fftFill++] = sample;
         ++samplesSinceOnset;
 
-        if (fftFill == static_cast<int> (fftData.size() / 2))
+        if (fftFill == 1024)
         {
             float energy = 0.0f;
             for (int n = 0; n < fftFill; ++n)
@@ -92,7 +95,7 @@ void KeyBridgeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
             }
             previousEnergy = energy;
 
-            std::fill (fftData.begin() + fftFill, fftData.end(), 0.0f);
+            std::fill (fftData.get() + fftFill, fftData.get() + 2048, 0.0f);
             analyzeFrame();
             fftFill = 0;
         }
@@ -102,10 +105,10 @@ void KeyBridgeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
 
 void KeyBridgeAudioProcessor::analyzeFrame()
 {
-    fft->performFrequencyOnlyForwardTransform (fftData.data());
+    fft->performFrequencyOnlyForwardTransform (fftData.get());
     for (int bin = 2; bin < 1024; ++bin)
     {
-        const auto magnitude = fftData[static_cast<size_t> (bin)];
+        const auto magnitude = fftData[bin];
         const auto frequency = static_cast<float> (bin) * static_cast<float> (sampleRate) / 2048.0f;
         if (frequency < 55.0f || frequency > 2000.0f || magnitude < 0.001f)
             continue;
