@@ -4,8 +4,8 @@
 namespace
 {
     constexpr std::array<const char*, 12> noteNames { { "C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B" } };
-    constexpr std::array<int, 12> majorScale { { 0, 2, 4, 5, 7, 9, 11, -1, -1, -1, -1, -1 } };
-    constexpr std::array<int, 12> minorScale { { 0, 2, 3, 5, 7, 8, 10, -1, -1, -1, -1, -1 } };
+    constexpr std::array<int, 7> majorScale { { 0, 2, 4, 5, 7, 9, 11 } };
+    constexpr std::array<int, 7> minorScale { { 0, 2, 3, 5, 7, 8, 10 } };
 }
 
 KeyBridgeAudioProcessorEditor::KeyBridgeAudioProcessorEditor (KeyBridgeAudioProcessor& p)
@@ -13,67 +13,80 @@ KeyBridgeAudioProcessorEditor::KeyBridgeAudioProcessorEditor (KeyBridgeAudioProc
 {
     setOpaque (true);
     setResizable (false, false);
-    setSize (720, 520);
+    setSize (760, 560);
 
-    auto label = [this] (juce::Label& l, const juce::String& text, float size, juce::Justification j = juce::Justification::centred)
+    auto setupLabel = [this] (juce::Label& label, const juce::String& text, float size, juce::Justification justification)
     {
-        l.setText (text, juce::dontSendNotification);
-        l.setFont (juce::Font (size, juce::Font::bold));
-        l.setColour (juce::Label::textColourId, juce::Colours::white);
-        l.setJustificationType (j);
-        addAndMakeVisible (l);
+        label.setText (text, juce::dontSendNotification);
+        label.setFont (juce::Font (size, juce::Font::bold));
+        label.setColour (juce::Label::textColourId, juce::Colours::white);
+        label.setJustificationType (justification);
+        addAndMakeVisible (label);
     };
 
-    label (title, "KEYBRIDGE  /  VOCAL FIT BETA", 22.0f, juce::Justification::centredLeft);
-    label (keyLabel, "Key: Listening", 26.0f);
-    label (bpmLabel, "Host BPM: --   |   Detected BPM: --", 16.0f);
-    label (confidenceLabel, "Confidence: --", 13.0f);
-    label (notesLabel, "Scale notes: listening...", 14.0f, juce::Justification::centredLeft);
-    label (recommendationLabel, "Vocal Fit: choose a profile and range", 16.0f, juce::Justification::centredLeft);
+    setupLabel (title, "KEYBRIDGE  /  VOCAL FIT BETA", 22.0f, juce::Justification::centredLeft);
+    setupLabel (keyLabel, "Key: Listening", 26.0f, juce::Justification::centred);
+    setupLabel (bpmLabel, "Project BPM: --   |   Detected Audio BPM: --", 15.0f, juce::Justification::centred);
+    setupLabel (confidenceLabel, "Key confidence: --   |   BPM confidence: --", 13.0f, juce::Justification::centred);
+    setupLabel (notesLabel, "Scale notes: listening...", 15.0f, juce::Justification::centredLeft);
+    setupLabel (recommendationLabel, "Vocal Fit: choose a profile and range", 16.0f, juce::Justification::centredLeft);
+    setupLabel (guidanceLabel, "Safe notes remain inside the detected scale. Expressive notes add color; tension notes should resolve.", 12.0f, juce::Justification::centredLeft);
 
-    profileLabel.setText ("VOCAL PROFILE", juce::dontSendNotification);
-    rangeLabel.setText ("COMFORTABLE RANGE (MIDI)", juce::dontSendNotification);
-    genreLabel.setText ("GENRE", juce::dontSendNotification);
-    vibeLabel.setText ("VIBE", juce::dontSendNotification);
-    for (auto* l : { &profileLabel, &rangeLabel, &genreLabel, &vibeLabel })
+    const auto setupCaption = [this] (juce::Label& label, const juce::String& text)
     {
-        addAndMakeVisible (*l);
-        l->setColour (juce::Label::textColourId, juce::Colours::lightgrey);
-        l->setFont (juce::Font (11.0f, juce::Font::bold));
-    }
+        label.setText (text, juce::dontSendNotification);
+        label.setFont (juce::Font (11.0f, juce::Font::bold));
+        label.setColour (juce::Label::textColourId, juce::Colours::lightgrey);
+        addAndMakeVisible (label);
+    };
+    setupCaption (profileLabel, "VOCAL PROFILE");
+    setupCaption (rangeLabel, "COMFORTABLE RANGE (MIDI)");
+    setupCaption (genreLabel, "GENRE");
+    setupCaption (deliveryLabel, "DELIVERY");
+    setupCaption (vibeLabel, "VIBE");
 
-    profileBox.addItemList ({ "Male preset", "Female preset", "Custom", "Skip" }, 1);
-    genreBox.addItemList ({ "Rap", "Melodic Rap", "Trap", "R&B", "Pop", "Gospel", "Soul", "Hip-Hop" }, 1);
-    vibeBox.addItemList ({ "Happy", "Sad", "Dark", "Emotional", "Energetic", "Romantic", "Aggressive", "Confident", "Laid-back" }, 1);
-    profileBox.setSelectedId (3); genreBox.setSelectedId (2); vibeBox.setSelectedId (4);
-    for (auto* box : { &profileBox, &genreBox, &vibeBox })
+    const auto addOptions = [] (juce::ComboBox& box, std::initializer_list<const char*> options)
+    {
+        int id = 1;
+        for (const auto* option : options)
+            box.addItem (option, id++);
+    };
+    addOptions (profileBox, { "Male", "Female", "Custom", "Skip" });
+    addOptions (genreBox, { "Rap", "Melodic Rap", "Trap", "R&B", "Pop", "Gospel", "Soul", "Hip-Hop" });
+    addOptions (deliveryBox, { "Rap", "Melodic", "Sung", "Spoken", "Chant" });
+    addOptions (vibeBox, { "Happy", "Sad", "Dark", "Emotional", "Energetic", "Romantic", "Aggressive", "Confident", "Laid-back" });
+    profileBox.setSelectedId (1); genreBox.setSelectedId (3); deliveryBox.setSelectedId (2); vibeBox.setSelectedId (5);
+    for (auto* box : { &profileBox, &genreBox, &deliveryBox, &vibeBox })
     {
         addAndMakeVisible (*box);
         box->onChange = [this] { refreshRecommendation(); };
     }
 
-    auto configureRange = [this] (juce::Slider& s, double value)
+    const auto setupRange = [this] (juce::Slider& slider, double value)
     {
-        addAndMakeVisible (s);
-        s.setRange (36.0, 84.0, 1.0);
-        s.setValue (value, juce::dontSendNotification);
-        s.setSliderStyle (juce::Slider::LinearHorizontal);
-        s.setTextBoxStyle (juce::Slider::TextBoxRight, false, 48, 20);
-        s.onValueChange = [this] { refreshRecommendation(); };
+        slider.setRange (36.0, 84.0, 1.0);
+        slider.setValue (value, juce::dontSendNotification);
+        slider.setSliderStyle (juce::Slider::LinearHorizontal);
+        slider.setTextBoxStyle (juce::Slider::TextBoxRight, false, 48, 20);
+        addAndMakeVisible (slider);
+        slider.onValueChange = [this] { refreshRecommendation(); };
     };
-    configureRange (lowNoteSlider, 48.0);
-    configureRange (highNoteSlider, 72.0);
+    setupRange (lowNoteSlider, 48.0);
+    setupRange (highNoteSlider, 72.0);
 
     addAndMakeVisible (analyzeButton);
     addAndMakeVisible (holdButton);
+    addAndMakeVisible (lockButton);
     analyzeButton.onClick = [this] { processor.setAnalysisEnabled (true); };
     holdButton.onClick = [this] { processor.setAnalysisEnabled (false); };
+    lockButton.onClick = [this] { processor.setAnalysisEnabled (false); };
 
     for (int i = 0; i < 12; ++i)
     {
-        noteButtons[static_cast<size_t> (i)] = std::make_unique<juce::TextButton> (noteNames[static_cast<size_t> (i)]);
-        addAndMakeVisible (*noteButtons[static_cast<size_t> (i)]);
-        noteButtons[static_cast<size_t> (i)]->onClick = [this, i] { playReferenceTone (60 + i); };
+        auto& button = noteButtons[static_cast<size_t> (i)];
+        button.setButtonText (noteNames[static_cast<size_t> (i)]);
+        addAndMakeVisible (button);
+        button.onClick = [this, i] { playReferenceTone (60 + i); };
     }
 
     startTimerHz (4);
@@ -85,56 +98,60 @@ void KeyBridgeAudioProcessorEditor::paint (juce::Graphics& g)
     g.setColour (juce::Colour (0xffa51f3d));
     g.fillRect (0, 0, getWidth(), 5);
     g.setColour (juce::Colour (0xff20242d));
-    g.fillRoundedRectangle (16.0f, 52.0f, getWidth() - 32.0f, 120.0f, 10.0f);
+    g.fillRoundedRectangle (16.0f, 52.0f, getWidth() - 32.0f, 125.0f, 10.0f);
     g.setColour (juce::Colour (0xff1b1f27));
-    g.fillRoundedRectangle (16.0f, 182.0f, getWidth() - 32.0f, 132.0f, 10.0f);
+    g.fillRoundedRectangle (16.0f, 188.0f, getWidth() - 32.0f, 165.0f, 10.0f);
     g.setColour (juce::Colours::grey);
     g.setFont (juce::Font (11.0f));
-    g.drawText ("CLICK A NOTE FOR A REFERENCE TONE", 26, 430, 280, 18, juce::Justification::left);
-    g.drawText ("TRANSPARENT ANALYSIS  /  NO AUTO-ADJUSTMENTS", 400, 430, 290, 18, juce::Justification::right);
+    g.drawText ("REFERENCE NOTE BUTTONS", 28, 425, 260, 18, juce::Justification::left);
+    g.drawText ("TRANSPARENT ANALYSIS  /  NO AUTO-ADJUSTMENTS", 420, 425, 310, 18, juce::Justification::right);
 }
 
 void KeyBridgeAudioProcessorEditor::resized()
 {
     title.setBounds (20, 16, 500, 28);
-    keyLabel.setBounds (30, 66, 300, 42);
-    bpmLabel.setBounds (330, 68, 360, 28);
-    confidenceLabel.setBounds (330, 102, 360, 22);
-    notesLabel.setBounds (30, 124, 660, 24);
-    recommendationLabel.setBounds (30, 192, 660, 28);
+    keyLabel.setBounds (30, 65, 300, 42);
+    bpmLabel.setBounds (330, 68, 400, 26);
+    confidenceLabel.setBounds (330, 103, 400, 22);
+    notesLabel.setBounds (30, 125, 700, 25);
+    recommendationLabel.setBounds (30, 198, 700, 30);
+    guidanceLabel.setBounds (30, 230, 700, 22);
 
-    profileLabel.setBounds (30, 230, 150, 18);
-    rangeLabel.setBounds (200, 230, 220, 18);
-    genreLabel.setBounds (435, 230, 120, 18);
-    vibeLabel.setBounds (565, 230, 125, 18);
-    profileBox.setBounds (30, 250, 150, 26);
-    lowNoteSlider.setBounds (200, 250, 105, 26);
-    highNoteSlider.setBounds (310, 250, 110, 26);
-    genreBox.setBounds (435, 250, 120, 26);
-    vibeBox.setBounds (565, 250, 125, 26);
+    profileLabel.setBounds (30, 263, 125, 18);
+    rangeLabel.setBounds (170, 263, 180, 18);
+    genreLabel.setBounds (365, 263, 100, 18);
+    deliveryLabel.setBounds (475, 263, 100, 18);
+    vibeLabel.setBounds (585, 263, 140, 18);
+    profileBox.setBounds (30, 284, 125, 26);
+    lowNoteSlider.setBounds (170, 284, 85, 26);
+    highNoteSlider.setBounds (260, 284, 90, 26);
+    genreBox.setBounds (365, 284, 100, 26);
+    deliveryBox.setBounds (475, 284, 100, 26);
+    vibeBox.setBounds (585, 284, 140, 26);
 
-    analyzeButton.setBounds (30, 285, 100, 28);
-    holdButton.setBounds (140, 285, 85, 28);
+    analyzeButton.setBounds (30, 322, 95, 28);
+    holdButton.setBounds (132, 322, 80, 28);
+    lockButton.setBounds (219, 322, 80, 28);
     for (int i = 0; i < 12; ++i)
-        noteButtons[static_cast<size_t> (i)]->setBounds (30 + i * 55, 350, 48, 42);
+        noteButtons[static_cast<size_t> (i)].setBounds (30 + i * 58, 450, 52, 38);
 }
 
 void KeyBridgeAudioProcessorEditor::timerCallback()
 {
-    static constexpr std::array<const char*, 12> noteNames { { "C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B" } };
-    const auto key = processor.getDetectedKey();
+    const auto key = juce::jlimit (0, 11, processor.getDetectedKey());
     const auto mode = processor.getDetectedMode();
     const auto host = processor.getHostBpm();
     const auto detected = processor.getDetectedBpm();
-    const auto confidence = processor.getKeyConfidence();
+    const auto keyConfidence = processor.getKeyConfidence();
+    const auto bpmConfidence = processor.getBpmConfidence();
     const auto modeName = mode == 0 ? "major" : "minor";
-    const auto scale = mode == 0 ? majorScale : minorScale;
+    const auto& scale = mode == 0 ? majorScale : minorScale;
 
-    keyLabel.setText ("Key: " + juce::String (noteNames[static_cast<size_t> (key)]) + " " + modeName, juce::dontSendNotification);
-    bpmLabel.setText ("Host BPM: " + (host > 0.0 ? juce::String (host, 2) : "--")
-                      + "   |   Detected BPM: " + (detected > 0.0 ? juce::String (detected, 2) : "--"), juce::dontSendNotification);
-    confidenceLabel.setText ("Key confidence: " + juce::String (confidence * 100.0f, 0) + "%   |   BPM confidence: "
-                             + juce::String (processor.getBpmConfidence() * 100.0f, 0) + "%", juce::dontSendNotification);
+    keyLabel.setText (juce::String ("Key: ") + noteNames[static_cast<size_t> (key)] + " " + modeName, juce::dontSendNotification);
+    bpmLabel.setText ("Project BPM: " + (host > 0.0 ? juce::String (host, 2) : "--")
+                      + "   |   Detected Audio BPM: " + (detected > 0.0 ? juce::String (detected, 2) : "--"), juce::dontSendNotification);
+    confidenceLabel.setText ("Key confidence: " + juce::String (keyConfidence * 100.0f, 0) + "%   |   BPM confidence: "
+                             + juce::String (bpmConfidence * 100.0f, 0) + "%", juce::dontSendNotification);
 
     juce::String scaleText = "Scale notes: ";
     for (int i = 0; i < 7; ++i)
@@ -145,21 +162,27 @@ void KeyBridgeAudioProcessorEditor::timerCallback()
 
 void KeyBridgeAudioProcessorEditor::refreshRecommendation()
 {
-    const auto key = processor.getDetectedKey();
+    const auto key = juce::jlimit (0, 11, processor.getDetectedKey());
     const auto mode = processor.getDetectedMode();
     const auto low = static_cast<int> (lowNoteSlider.getValue());
-    const auto high = static_cast<int> (highNoteSlider.getValue());
+    const auto high = juce::jmax (low, static_cast<int> (highNoteSlider.getValue()));
     const auto profile = profileBox.getText();
     const auto genre = genreBox.getText();
+    const auto delivery = deliveryBox.getText();
     const auto vibe = vibeBox.getText();
-    const auto rootMidi = 60 + key;
-    const auto preferred = juce::jlimit (low, high, rootMidi + (vibe == "Energetic" ? 7 : (vibe == "Sad" || vibe == "Dark" ? 3 : 0)));
-    const auto modeName = mode == 0 ? "major" : "minor";
-    recommendationLabel.setText (juce::String ("Vocal Fit: starting note ") + juce::String (noteNames[static_cast<size_t> (preferred % 12)])
-                                 + juce::String (preferred) + "  |  " + profile + " / " + genre + " / " + vibe
-                                 + "  |  fit range " + juce::String (low) + "-" + juce::String (high)
-                                 + "  |  " + juce::String (noteNames[static_cast<size_t> (key)]) + " " + modeName,
-                                 juce::dontSendNotification);
+    const auto root = 60 + key;
+    const auto preferred = juce::jlimit (low, high, root + (vibe == "Energetic" ? 7 : (vibe == "Sad" || vibe == "Dark" ? 3 : 0)));
+    const auto safe1 = juce::jlimit (low, high, preferred + 2);
+    const auto safe2 = juce::jlimit (low, high, preferred + (mode == 0 ? 4 : 3));
+    const auto expressive = juce::jlimit (low, high, preferred + 1);
+    const auto tension = juce::jlimit (low, high, preferred + 6);
+
+    recommendationLabel.setText (juce::String ("STRONGEST: ") + noteNames[static_cast<size_t> (preferred % 12)] + juce::String (preferred)
+        + "   |   SAFE: " + noteNames[static_cast<size_t> (safe1 % 12)] + ", " + noteNames[static_cast<size_t> (safe2 % 12)]
+        + "   |   " + profile + " / " + genre + " / " + delivery + " / " + vibe, juce::dontSendNotification);
+    guidanceLabel.setText ("Suggested range " + juce::String (low) + "-" + juce::String (high)
+        + " MIDI   |   EXPRESSIVE: " + noteNames[static_cast<size_t> (expressive % 12)]
+        + "   |   TENSION: " + noteNames[static_cast<size_t> (tension % 12)] + " (resolve deliberately)", juce::dontSendNotification);
 }
 
 void KeyBridgeAudioProcessorEditor::playReferenceTone (int midiNote)
