@@ -27,6 +27,14 @@ public:
     void getStateInformation (juce::MemoryBlock&) override {}
     void setStateInformation (const void*, int) override {}
 
+    double getHostBpm() const noexcept { return hostBpm.load (std::memory_order_relaxed); }
+    int getDetectedKey() const noexcept { return detectedKey.load (std::memory_order_relaxed); }
+    float getKeyConfidence() const noexcept { return keyConfidence.load (std::memory_order_relaxed); }
+
 private:
+    std::atomic<double> hostBpm { 0.0 };
+    std::atomic<int> detectedKey { 0 };
+    std::atomic<float> keyConfidence { 0.0f };
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (KeyBridgeAudioProcessor)
 };

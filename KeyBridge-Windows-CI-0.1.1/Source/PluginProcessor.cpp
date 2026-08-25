@@ -20,7 +20,10 @@ bool KeyBridgeAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts
 
 void KeyBridgeAudioProcessor::processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&)
 {
-    // Deliberate no-op. Audio passes through untouched for lifecycle diagnosis.
+    if (auto* playHead = getPlayHead())
+        if (auto position = playHead->getPosition())
+            if (position->getBpm().hasValue())
+                hostBpm.store (*position->getBpm(), std::memory_order_relaxed);
 }
 
 juce::AudioProcessorEditor* KeyBridgeAudioProcessor::createEditor()
