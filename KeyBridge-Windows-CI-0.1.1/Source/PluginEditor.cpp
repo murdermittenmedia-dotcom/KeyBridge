@@ -18,7 +18,7 @@ KeyBridgeAudioProcessorEditor::KeyBridgeAudioProcessorEditor (KeyBridgeAudioProc
     auto setupLabel = [this] (juce::Label& label, const juce::String& text, float size, juce::Justification justification)
     {
         label.setText (text, juce::dontSendNotification);
-        label.setFont (juce::FontOptions (size).withStyle ("Bold"));
+        label.setFont (juce::Font (size, juce::Font::bold));
         label.setColour (juce::Label::textColourId, juce::Colours::white);
         label.setJustificationType (justification);
         addAndMakeVisible (label);
@@ -35,7 +35,7 @@ KeyBridgeAudioProcessorEditor::KeyBridgeAudioProcessorEditor (KeyBridgeAudioProc
     const auto setupCaption = [this] (juce::Label& label, const juce::String& text)
     {
         label.setText (text, juce::dontSendNotification);
-        label.setFont (juce::FontOptions (11.0f).withStyle ("Bold"));
+        label.setFont (juce::Font (11.0f, juce::Font::bold));
         label.setColour (juce::Label::textColourId, juce::Colours::lightgrey);
         addAndMakeVisible (label);
     };
@@ -114,7 +114,7 @@ void KeyBridgeAudioProcessorEditor::paint (juce::Graphics& g)
     g.setColour (juce::Colour (0xff1b1f27));
     g.fillRoundedRectangle (16.0f, 188.0f, getWidth() - 32.0f, 165.0f, 10.0f);
     g.setColour (juce::Colours::grey);
-    g.setFont (juce::FontOptions (11.0f));
+    g.setFont (juce::Font (11.0f));
     g.drawText ("REFERENCE NOTE BUTTONS", 28, 425, 260, 18, juce::Justification::left);
     g.drawText ("TRANSPARENT ANALYSIS  /  NO AUTO-ADJUSTMENTS", 420, 425, 310, 18, juce::Justification::right);
 }
