@@ -22,6 +22,7 @@ namespace
         juce::String json;
         json << "{\n";
         json << "  \"mode\": \"beat\",\n";
+        json << "  \"usable_audio\": " << (result.usableAudio ? "true" : "false") << ",\n";
         json << "  \"sample_rate\": " << sampleRate << ",\n";
         json << "  \"channels\": " << channels << ",\n";
         json << "  \"duration_seconds\": " << result.durationSeconds << ",\n";
@@ -70,6 +71,8 @@ namespace
         juce::String json;
         json << "{\n";
         json << "  \"mode\": \"vocal\",\n";
+        json << "  \"usable_audio\": " << (result.usableAudio ? "true" : "false") << ",\n";
+        json << "  \"uncertain\": " << (result.uncertain ? "true" : "false") << ",\n";
         json << "  \"sample_rate\": " << sampleRate << ",\n";
         json << "  \"channels\": " << channels << ",\n";
         json << "  \"rms\": " << result.rms << ",\n";
@@ -147,12 +150,23 @@ int main (int argc, char* argv[])
     const juce::File output = outputPrefix.isEmpty()
         ? input.getSiblingFile (input.getFileNameWithoutExtension() + "_tunerite.json")
         : juce::File (outputPrefix).withFileExtension ("json");
+    const juce::File absoluteOutput (output.getFullPathName());
+    if (! absoluteOutput.getParentDirectory().createDirectory())
+    {
+        std::cerr << "Unable to create report directory: " << absoluteOutput.getParentDirectory().getFullPathName() << "\n";
+        return 5;
+    }
 
     if (mode == "beat")
-        writeBeatReport (output, tunerite::AnalysisCore::analyzeBeat (mono, reader->sampleRate), reader->sampleRate, decoded.getNumChannels());
+        writeBeatReport (absoluteOutput, tunerite::AnalysisCore::analyzeBeat (mono, reader->sampleRate), reader->sampleRate, decoded.getNumChannels());
     else
-        writeVocalReport (output, tunerite::AnalysisCore::analyzeVocal (mono, reader->sampleRate), reader->sampleRate, decoded.getNumChannels());
+        writeVocalReport (absoluteOutput, tunerite::AnalysisCore::analyzeVocal (mono, reader->sampleRate), reader->sampleRate, decoded.getNumChannels());
 
-    std::cout << "Wrote report: " << output.getFullPathName() << "\n";
+    if (! absoluteOutput.existsAsFile())
+    {
+        std::cerr << "Report was not created: " << absoluteOutput.getFullPathName() << "\n";
+        return 6;
+    }
+    std::cout << "Final absolute report path: " << absoluteOutput.getFullPathName() << "\n";
     return 0;
 }

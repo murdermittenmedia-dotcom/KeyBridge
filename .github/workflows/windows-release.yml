@@ -51,22 +51,77 @@ jobs:
       - name: Validate offline WAV analyzer reports
         shell: pwsh
         run: |
-          $fixtures = "build-msvc/synthetic-fixtures"
-          $reports = "build-msvc/offline-reports"
-          New-Item -ItemType Directory -Force -Path $reports | Out-Null
-          python "KeyBridge-Windows-CI-0.1.1/Tests/generate_synthetic_fixtures.py" --output $fixtures
-          $analyzer = "build-msvc/TuneriteOfflineAnalyzer_artefacts/Release/TuneriteOfflineAnalyzer.exe"
-          if (!(Test-Path $analyzer)) { throw "Offline analyzer executable was not produced" }
-          & $analyzer --input "$fixtures/c_eg_click_120bpm.wav" --mode beat --output "$reports/c_eg_click_120bpm"
-          if ($LASTEXITCODE -ne 0) { throw "Offline beat WAV analysis failed" }
-          $beat = Get-Content "$reports/c_eg_click_120bpm.json" -Raw | ConvertFrom-Json
-          if ([math]::Abs($beat.detected_bpm - 120.0) -gt 2.0) { throw "Offline beat report BPM was $($beat.detected_bpm), expected 120 +/- 2" }
-          if ($beat.key_uncertain -ne $true) { throw "C-E-G relative-mode fixture must remain explicitly key-uncertain" }
-          & $analyzer --input "$fixtures/a3_220hz.wav" --mode vocal --output "$reports/a3_220hz"
-          if ($LASTEXITCODE -ne 0) { throw "Offline vocal WAV analysis failed" }
-          $vocal = Get-Content "$reports/a3_220hz.json" -Raw | ConvertFrom-Json
-          if ([math]::Abs($vocal.average_midi - 57.0) -gt 0.5) { throw "Offline vocal report MIDI was $($vocal.average_midi), expected A3/MIDI 57 +/- 0.5" }
-          Write-Host "Validated offline WAV reports: beat BPM=$($beat.detected_bpm), vocal MIDI=$($vocal.average_midi)"
+          $ErrorActionPreference = "Stop"
+          $buildRoot = [System.IO.Path]::GetFullPath((Join-Path $PWD "build-msvc"))
+          $fixturesDirectory = Join-Path $buildRoot "synthetic-fixtures"
+          $reportsDirectory = Join-Path $buildRoot "offline-reports"
+          New-Item -ItemType Directory -Force -Path $fixturesDirectory, $reportsDirectory | Out-Null
+          $validationLogPath = Join-Path $reportsDirectory "validation.log"
+          Start-Transcript -Path $validationLogPath -Force | Out-Null
+          try {
+            $analyzer = Join-Path $buildRoot "TuneriteOfflineAnalyzer_artefacts/Release/TuneriteOfflineAnalyzer.exe"
+            if (!(Test-Path -LiteralPath $analyzer)) { throw "Offline analyzer executable was not produced: $analyzer" }
+            python "KeyBridge-Windows-CI-0.1.1/Tests/generate_synthetic_fixtures.py" --output $fixturesDirectory
+            if ($LASTEXITCODE -ne 0) { throw "Synthetic WAV fixture generation failed with exit code $LASTEXITCODE" }
+
+            function Assert-ReportExists([string] $reportPath, [string] $label) {
+              if (Test-Path -LiteralPath $reportPath -PathType Leaf) { return }
+              Write-Host "Missing $label report: $reportPath"
+              Write-Host "Current working directory: $(Get-Location)"
+              Write-Host "JSON files beneath build root ($buildRoot):"
+              Get-ChildItem -LiteralPath $buildRoot -Recurse -File -Filter *.json -ErrorAction SilentlyContinue |
+                ForEach-Object { Write-Host $_.FullName }
+              throw "$label report was not created at the expected absolute path: $reportPath"
+            }
+
+            $beatReportPath = [System.IO.Path]::GetFullPath((Join-Path $reportsDirectory "c_eg_click_120bpm.json"))
+            Write-Host "Beat report absolute path: $beatReportPath"
+            & $analyzer --input (Join-Path $fixturesDirectory "c_eg_click_120bpm.wav") --mode beat --output $beatReportPath
+            if ($LASTEXITCODE -ne 0) { throw "Offline beat WAV analysis failed with exit code $LASTEXITCODE" }
+            Assert-ReportExists $beatReportPath "beat"
+            $beat = Get-Content -LiteralPath $beatReportPath -Raw | ConvertFrom-Json
+            Write-Host "Beat JSON: BPM=$($beat.detected_bpm), key_root=$($beat.key_root), key_mode=$($beat.key_mode), key_confidence=$($beat.key_confidence), bpm_confidence=$($beat.bpm_confidence), key_uncertain=$($beat.key_uncertain)"
+            if ([math]::Abs($beat.detected_bpm - 120.0) -gt 2.0) { throw "Offline beat report BPM was $($beat.detected_bpm), expected 120 +/- 2" }
+            $expectedKeyFamily = (($beat.key_root -eq 0 -and $beat.key_mode -eq 0) -or ($beat.key_root -eq 4 -and $beat.key_mode -eq 1))
+            if (! $expectedKeyFamily) { throw "C-E-G beat key was root=$($beat.key_root), mode=$($beat.key_mode); expected C Major or E Minor family" }
+            if ($beat.key_uncertain -ne $true) { throw "C-E-G relative-mode fixture must remain explicitly key-uncertain" }
+
+            $vocalReportPath = [System.IO.Path]::GetFullPath((Join-Path $reportsDirectory "a3_220hz.json"))
+            Write-Host "Vocal report absolute path: $vocalReportPath"
+            & $analyzer --input (Join-Path $fixturesDirectory "a3_220hz.wav") --mode vocal --output $vocalReportPath
+            if ($LASTEXITCODE -ne 0) { throw "Offline vocal WAV analysis failed with exit code $LASTEXITCODE" }
+            Assert-ReportExists $vocalReportPath "vocal"
+            $vocal = Get-Content -LiteralPath $vocalReportPath -Raw | ConvertFrom-Json
+            Write-Host "Vocal JSON: average_midi=$($vocal.average_midi), low_midi=$($vocal.low_midi), high_midi=$($vocal.high_midi), confidence=$($vocal.confidence), voiced_percent=$($vocal.voiced_percent), melodic=$($vocal.melodic)"
+            if ([math]::Abs($vocal.average_midi - 57.0) -gt 0.5) { throw "Offline vocal report MIDI was $($vocal.average_midi), expected A3/MIDI 57 +/- 0.5" }
+
+            foreach ($rejectionCase in @(
+              @{ label = "silence"; input = "silence.wav"; report = "silence.json" },
+              @{ label = "low-level noise"; input = "low_level_noise.wav"; report = "low_level_noise.json" }
+            )) {
+              $rejectionReportPath = [System.IO.Path]::GetFullPath((Join-Path $reportsDirectory $rejectionCase.report))
+              Write-Host "$($rejectionCase.label) report absolute path: $rejectionReportPath"
+              & $analyzer --input (Join-Path $fixturesDirectory $rejectionCase.input) --mode beat --output $rejectionReportPath
+              if ($LASTEXITCODE -ne 0) { throw "Offline $($rejectionCase.label) analysis failed with exit code $LASTEXITCODE" }
+              Assert-ReportExists $rejectionReportPath $rejectionCase.label
+              $rejection = Get-Content -LiteralPath $rejectionReportPath -Raw | ConvertFrom-Json
+              Write-Host "$($rejectionCase.label) JSON: usable_audio=$($rejection.usable_audio), BPM=$($rejection.detected_bpm), key_uncertain=$($rejection.key_uncertain), bpm_uncertain=$($rejection.bpm_uncertain), warning=$($rejection.warning)"
+              if ($rejection.usable_audio -ne $false -or $rejection.detected_bpm -ne 0 -or $rejection.key_uncertain -ne $true -or $rejection.bpm_uncertain -ne $true) {
+                throw "$($rejectionCase.label) must be rejected without a BPM/key result"
+              }
+            }
+          }
+          finally {
+            Stop-Transcript | Out-Null
+          }
+
+      - name: Upload offline validation diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Tunerite-Offline-Validation-Reports
+          path: build-msvc/offline-reports
+          if-no-files-found: warn
 
       - name: Normalize and validate VST3 manifest
         shell: pwsh
