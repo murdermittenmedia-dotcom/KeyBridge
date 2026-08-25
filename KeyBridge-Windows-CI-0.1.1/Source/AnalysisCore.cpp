@@ -234,8 +234,8 @@ namespace tunerite
             const auto frameRms = std::sqrt (frameEnergy / frameSize);
             if (frameRms < result.rms * 0.30) continue;
 
-            double bestScore = -1.0;
-            int bestLag = 0;
+            std::vector<double> correlation;
+            correlation.reserve (static_cast<size_t> (maxLag - minLag + 1));
             for (int lag = minLag; lag <= maxLag; ++lag)
             {
                 double numerator = 0.0, leftEnergy = 0.0, rightEnergy = 0.0;
@@ -247,8 +247,19 @@ namespace tunerite
                     leftEnergy += left * left;
                     rightEnergy += right * right;
                 }
-                const auto score = numerator / std::sqrt (leftEnergy * rightEnergy + 1.0e-12);
-                if (score > bestScore) { bestScore = score; bestLag = lag; }
+                correlation.push_back (numerator / std::sqrt (leftEnergy * rightEnergy + 1.0e-12));
+            }
+            double bestScore = -1.0;
+            int bestLag = 0;
+            for (size_t index = 1; index + 1 < correlation.size(); ++index)
+            {
+                const auto score = correlation[index];
+                if (score >= 0.58 && score >= correlation[index - 1] && score > correlation[index + 1])
+                {
+                    bestScore = score;
+                    bestLag = minLag + static_cast<int> (index);
+                    break;
+                }
             }
             if (bestScore < 0.58 || bestLag == 0) continue;
             const auto midi = midiFromFrequency (sampleRate / bestLag);
