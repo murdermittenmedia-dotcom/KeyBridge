@@ -5,6 +5,7 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <cstdint>
 #include <mutex>
 #include <thread>
 #include <vector>
@@ -91,8 +92,8 @@ public:
 private:
     void workerLoop();
     void resetLiveResults() noexcept;
-    void publishBeatResult (const tunerite::BeatAnalysisResult&);
-    void publishVocalResult (const tunerite::VocalAnalysisResult&);
+    void publishBeatResult (const tunerite::BeatAnalysisResult&, std::uint64_t generation);
+    void publishVocalResult (const tunerite::VocalAnalysisResult&, std::uint64_t generation);
 
     static constexpr double captureSeconds = 16.0;
     double sampleRate = 44100.0;
@@ -102,6 +103,9 @@ private:
     std::atomic<int> completedBuffer { -1 };
     std::atomic<int> completedSamples { 0 };
     std::atomic<int> completedMode { 0 };
+    std::atomic<std::uint64_t> analysisGeneration { 0 };
+    std::atomic<std::uint64_t> captureGeneration { 0 };
+    std::atomic<std::uint64_t> completedGeneration { 0 };
     std::atomic<bool> captureRequested { false };
     std::atomic<bool> captureActive { false };
     std::atomic<bool> analysisEnabled { true };

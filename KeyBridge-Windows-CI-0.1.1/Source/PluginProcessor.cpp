@@ -22,6 +22,13 @@ KeyBridgeAudioProcessor::~KeyBridgeAudioProcessor()
 
 void KeyBridgeAudioProcessor::prepareToPlay (double newSampleRate, int)
 {
+    analysisGeneration.fetch_add (1, std::memory_order_acq_rel);
+    captureActive.store (false, std::memory_order_release);
+    captureRequested.store (false, std::memory_order_release);
+    workerWake.notify_one();
+    while (workerBusy.load (std::memory_order_acquire) || workerJobReady.load (std::memory_order_acquire))
+        juce::Thread::sleep (1);
+
     sampleRate = newSampleRate > 0.0 ? newSampleRate : 44100.0;
     const auto capacity = static_cast<size_t> (std::ceil (sampleRate * captureSeconds));
     captureBuffers[0].assign (capacity, 0.0f);
@@ -31,6 +38,8 @@ void KeyBridgeAudioProcessor::prepareToPlay (double newSampleRate, int)
     completedBuffer.store (-1, std::memory_order_relaxed);
     captureRequested.store (false, std::memory_order_relaxed);
     captureActive.store (false, std::memory_order_relaxed);
+    captureGeneration.store (analysisGeneration.load (std::memory_order_relaxed), std::memory_order_relaxed);
+    completedGeneration.store (0, std::memory_order_relaxed);
     captureProgress.store (0.0f, std::memory_order_relaxed);
     resetLiveResults();
 }
@@ -75,15 +84,17 @@ void KeyBridgeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
     const auto rms = static_cast<float> (std::sqrt (energy / static_cast<double> (buffer.getNumSamples())));
     inputPeak.store (0.85f * inputPeak.load (std::memory_order_relaxed) + 0.15f * blockPeak, std::memory_order_relaxed);
 
-    if (captureRequested.exchange (false, std::memory_order_acq_rel)
+    if (captureRequested.load (std::memory_order_acquire)
         && ! captureActive.load (std::memory_order_relaxed)
         && ! workerBusy.load (std::memory_order_relaxed)
-        && ! workerJobReady.load (std::memory_order_relaxed))
+        && ! workerJobReady.load (std::memory_order_relaxed)
+        && captureRequested.exchange (false, std::memory_order_acq_rel))
     {
         const auto nextBuffer = 1 - juce::jmax (0, completedBuffer.load (std::memory_order_relaxed));
         activeBuffer.store (nextBuffer, std::memory_order_relaxed);
         capturedSamples.store (0, std::memory_order_relaxed);
         captureProgress.store (0.0f, std::memory_order_relaxed);
+        captureGeneration.store (analysisGeneration.fetch_add (1, std::memory_order_acq_rel) + 1, std::memory_order_release);
         resetLiveResults();
         captureActive.store (true, std::memory_order_release);
     }
@@ -123,6 +134,7 @@ void KeyBridgeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
         completedBuffer.store (bufferIndex, std::memory_order_release);
         completedSamples.store (write, std::memory_order_release);
         completedMode.store (mode, std::memory_order_release);
+        completedGeneration.store (captureGeneration.load (std::memory_order_acquire), std::memory_order_release);
         workerJobReady.store (true, std::memory_order_release);
         workerWake.notify_one();
     }
@@ -143,6 +155,7 @@ void KeyBridgeAudioProcessor::workerLoop()
         const auto bufferIndex = completedBuffer.load (std::memory_order_acquire);
         const auto sampleCount = completedSamples.load (std::memory_order_acquire);
         const auto mode = completedMode.load (std::memory_order_acquire);
+        const auto generation = completedGeneration.load (std::memory_order_acquire);
         workerJobReady.store (false, std::memory_order_release);
         workerBusy.store (true, std::memory_order_release);
         lock.unlock();
@@ -152,16 +165,18 @@ void KeyBridgeAudioProcessor::workerLoop()
             const auto& buffer = captureBuffers[bufferIndex];
             std::vector<float> view (buffer.begin(), buffer.begin() + juce::jmin (sampleCount, static_cast<int> (buffer.size())));
             if (mode == 0)
-                publishBeatResult (tunerite::AnalysisCore::analyzeBeat (view, sampleRate));
+                publishBeatResult (tunerite::AnalysisCore::analyzeBeat (view, sampleRate), generation);
             else if (mode == 1)
-                publishVocalResult (tunerite::AnalysisCore::analyzeVocal (view, sampleRate));
+                publishVocalResult (tunerite::AnalysisCore::analyzeVocal (view, sampleRate), generation);
         }
         workerBusy.store (false, std::memory_order_release);
     }
 }
 
-void KeyBridgeAudioProcessor::publishBeatResult (const tunerite::BeatAnalysisResult& result)
+void KeyBridgeAudioProcessor::publishBeatResult (const tunerite::BeatAnalysisResult& result, std::uint64_t generation)
 {
+    if (generation != analysisGeneration.load (std::memory_order_acquire))
+        return;
     detectedBpm.store (result.bpm, std::memory_order_relaxed);
     detectedKey.store (result.keyRoot, std::memory_order_relaxed);
     detectedMode.store (result.keyMode, std::memory_order_relaxed);
@@ -170,8 +185,10 @@ void KeyBridgeAudioProcessor::publishBeatResult (const tunerite::BeatAnalysisRes
     hasStableDetectionFlag.store (result.usableAudio && ! result.keyUncertain && ! result.bpmUncertain, std::memory_order_release);
 }
 
-void KeyBridgeAudioProcessor::publishVocalResult (const tunerite::VocalAnalysisResult& result)
+void KeyBridgeAudioProcessor::publishVocalResult (const tunerite::VocalAnalysisResult& result, std::uint64_t generation)
 {
+    if (generation != analysisGeneration.load (std::memory_order_acquire))
+        return;
     vocalConfidence.store (static_cast<float> (result.confidence), std::memory_order_relaxed);
     vocalLowestMidi.store (static_cast<float> (result.lowMidi), std::memory_order_relaxed);
     vocalHighestMidi.store (static_cast<float> (result.highMidi), std::memory_order_relaxed);
@@ -216,6 +233,7 @@ void KeyBridgeAudioProcessor::startFreshAnalysis() noexcept
     if (analysisMode.load (std::memory_order_relaxed) != 2)
     {
         analysisEnabled.store (true, std::memory_order_relaxed);
+        analysisGeneration.fetch_add (1, std::memory_order_acq_rel);
         captureRequested.store (true, std::memory_order_release);
     }
 }
@@ -261,6 +279,7 @@ void KeyBridgeAudioProcessor::resetAllResults() noexcept
 {
     savedBeatResult.store (false, std::memory_order_release);
     savedVocalResult.store (false, std::memory_order_release);
+    analysisGeneration.fetch_add (1, std::memory_order_acq_rel);
     captureActive.store (false, std::memory_order_release);
     captureRequested.store (false, std::memory_order_release);
     resetLiveResults();
