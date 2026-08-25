@@ -1,0 +1,4 @@
+id,relative_path,split,mode,true_bpm,accepted_bpms,true_key_root,true_key_mode,expected_key_candidates,vocal_low_midi,vocal_high_midi,notes,rights_confirmed
+example_beat_001,local/beat_001.wav,development,beat,120,"120;60;240",0,major,"C Major;E Minor",,,"Replace path with locally held, authorized audio; do not commit the media.",yes
+example_vocal_001,local/vocal_001.wav,development,vocal,,,,,,48,60,"Replace path with locally held, authorized isolated vocal; low/high are robust reference percentiles.",yes
+example_locked_001,local/locked_001.wav,locked,beat,101,"101;50.5;202",9,minor,"A Minor;C Major",,,"Keep locked rows out of algorithm-tuning decisions until final evaluation.",yes
