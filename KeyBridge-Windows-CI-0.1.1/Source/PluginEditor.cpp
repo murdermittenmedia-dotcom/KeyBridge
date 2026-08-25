@@ -10,7 +10,7 @@ KeyBridgeAudioProcessorEditor::KeyBridgeAudioProcessorEditor (KeyBridgeAudioProc
     statusLabel.setText ("KeyBridge\nLifecycle test build", juce::dontSendNotification);
     statusLabel.setJustificationType (juce::Justification::centred);
     statusLabel.setColour (juce::Label::textColourId, juce::Colours::white);
-    statusLabel.setFont (juce::Font (juce::FontOptions (22.0f).withStyle (juce::Font::bold)));
+    statusLabel.setFont (juce::Font (22.0f, juce::Font::bold));
     addAndMakeVisible (statusLabel);
 }
 
