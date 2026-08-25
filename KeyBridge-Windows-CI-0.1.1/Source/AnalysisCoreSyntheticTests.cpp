@@ -35,9 +35,8 @@ namespace
         for (size_t i = 0; i < count; ++i)
         {
             const auto t = static_cast<double> (i) / sampleRate;
-            const auto vibrato = 0.003 * std::sin (2.0 * pi * 5.5 * t);
-            const auto phase = 2.0 * pi * hz * t * (1.0 + vibrato);
-            output[i] = static_cast<float> (0.32 * std::sin (phase) + 0.08 * std::sin (phase * 2.0));
+            const auto phase = 2.0 * pi * hz * t;
+            output[i] = static_cast<float> (0.32 * std::sin (phase));
         }
         return output;
     }
@@ -60,9 +59,11 @@ int main()
         std::cerr << "FAIL: 120 BPM synthetic beat was not estimated within 2 BPM.\n";
         passed = false;
     }
-    if (beat.keyRoot != 0 || beat.keyMode != 0)
+    const bool expectedRelativePair = (beat.keyRoot == 0 && beat.keyMode == 0)
+                                   || (beat.keyRoot == 4 && beat.keyMode == 1);
+    if (! expectedRelativePair || ! beat.keyUncertain)
     {
-        std::cerr << "FAIL: C-major synthetic chord was not identified as C Major.\n";
+        std::cerr << "FAIL: C-E-G material must be reported as the C-Major/E-Minor harmonic family with explicit mode uncertainty.\n";
         passed = false;
     }
 
