@@ -155,6 +155,21 @@ namespace tunerite
                 candidate.score *= std::max (0.20, 1.0 - 0.60 * subperiodRatio);
         }
         std::sort (candidates.begin(), candidates.end(), [] (const auto& a, const auto& b) { return a.score > b.score; });
+        if (! candidates.empty() && candidates.front().score > 0.0)
+        {
+            const auto leadingScore = candidates.front().score;
+            const auto leadingBpm = candidates.front().bpm;
+            for (auto& candidate : candidates)
+            {
+                const auto ratio = candidate.bpm / leadingBpm;
+                const auto nearestMultiple = static_cast<int> (std::round (ratio));
+                const bool isCloseHigherMultiple = nearestMultiple >= 2 && nearestMultiple <= 4
+                    && std::abs (ratio - nearestMultiple) < 0.08;
+                if (isCloseHigherMultiple && candidate.score >= leadingScore * 0.35)
+                    candidate.score = leadingScore * 1.001;
+            }
+            std::sort (candidates.begin(), candidates.end(), [] (const auto& a, const auto& b) { return a.score > b.score; });
+        }
         for (const auto& candidate : candidates)
         {
             const bool distinct = std::none_of (result.tempoCandidates.begin(), result.tempoCandidates.end(), [&candidate] (const auto& kept) { return std::abs (kept.bpm - candidate.bpm) < 1.5; });
