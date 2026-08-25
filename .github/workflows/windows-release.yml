@@ -1,0 +1,60 @@
+name: KeyBridge Windows Release
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-windows:
+    runs-on: windows-2022
+    permissions:
+      contents: read
+      actions: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure MSVC x64 Release
+        shell: pwsh
+        run: |
+          $project = "KeyBridge-Windows-CI-0.1.1"
+          Copy-Item "$project/CMakeLists-msvc.txt" "$project/CMakeLists.txt" -Force
+          cmake -S $project -B build-msvc -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=Release -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+
+      - name: Build VST3
+        shell: pwsh
+        run: |
+          cmake --build build-msvc --config Release --target KeyBridge_VST3 --parallel
+          $vst3 = "build-msvc/KeyBridge_artefacts/Release/VST3/KeyBridge.vst3"
+          if (!(Test-Path $vst3)) { throw "VST3 bundle was not produced at $vst3" }
+
+      - name: Stage installer payload
+        shell: pwsh
+        run: |
+          $project = "KeyBridge-Windows-CI-0.1.1"
+          $stage = "$project/installer/stage"
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Remove-Item "$stage/KeyBridge.vst3" -Recurse -Force -ErrorAction SilentlyContinue
+          Copy-Item -Recurse "build-msvc/KeyBridge_artefacts/Release/VST3/KeyBridge.vst3" "$stage/KeyBridge.vst3"
+          Copy-Item "$project/README.md" "$stage/README.txt" -Force
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          & "C:/Program Files (x86)/Inno Setup 6/ISCC.exe" "KeyBridge-Windows-CI-0.1.1/installer/KeyBridge.iss"
+          if (!(Test-Path "dist/KeyBridge-Setup-0.1.1.exe")) { throw "Expected installer dist/KeyBridge-Setup-0.1.1.exe was not produced" }
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: KeyBridge-Setup-0.1.1
+          path: dist/KeyBridge-Setup-0.1.1.exe
+          if-no-files-found: error
