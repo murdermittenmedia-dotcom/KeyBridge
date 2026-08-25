@@ -20,8 +20,8 @@ private:
 
     KeyBridgeAudioProcessor& processor;
     juce::Label title, keyLabel, bpmLabel, confidenceLabel, notesLabel, recommendationLabel, guidanceLabel;
-    juce::Label profileLabel, rangeLabel, genreLabel, deliveryLabel, vibeLabel;
-    juce::ComboBox profileBox, genreBox, deliveryBox, vibeBox;
+    juce::Label profileLabel, rangeLabel, genreLabel, deliveryLabel, vibeLabel, displayLabel, themeLabel;
+    juce::ComboBox profileBox, genreBox, deliveryBox, vibeBox, displayModeBox, themeBox;
     juce::Slider lowNoteSlider, highNoteSlider;
     juce::TextButton analyzeButton { "ANALYZE" }, holdButton { "HOLD" }, lockButton { "LOCK" };
     std::array<juce::TextButton, 12> noteButtons;
