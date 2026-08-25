@@ -74,15 +74,21 @@ void KeyBridgeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
     const auto* left = buffer.getReadPointer (0);
     const auto* right = buffer.getNumChannels() > 1 ? buffer.getReadPointer (1) : left;
     float blockPeak = 0.0f;
+    float leftPeak = 0.0f;
+    float rightPeak = 0.0f;
     double energy = 0.0;
     for (int i = 0; i < buffer.getNumSamples(); ++i)
     {
         const auto mono = 0.5f * (left[i] + right[i]);
+        leftPeak = juce::jmax (leftPeak, std::abs (left[i]));
+        rightPeak = juce::jmax (rightPeak, std::abs (right[i]));
         blockPeak = juce::jmax (blockPeak, std::abs (mono));
         energy += static_cast<double> (mono) * static_cast<double> (mono);
     }
     const auto rms = static_cast<float> (std::sqrt (energy / static_cast<double> (buffer.getNumSamples())));
     inputPeak.store (0.85f * inputPeak.load (std::memory_order_relaxed) + 0.15f * blockPeak, std::memory_order_relaxed);
+    leftInputPeak.store (0.85f * leftInputPeak.load (std::memory_order_relaxed) + 0.15f * leftPeak, std::memory_order_relaxed);
+    rightInputPeak.store (0.85f * rightInputPeak.load (std::memory_order_relaxed) + 0.15f * rightPeak, std::memory_order_relaxed);
 
     if (captureRequested.load (std::memory_order_acquire)
         && ! captureActive.load (std::memory_order_relaxed)
@@ -212,6 +218,8 @@ void KeyBridgeAudioProcessor::resetLiveResults() noexcept
     keyConfidence.store (0.0f, std::memory_order_relaxed);
     bpmConfidence.store (0.0f, std::memory_order_relaxed);
     inputPeak.store (0.0f, std::memory_order_relaxed);
+    leftInputPeak.store (0.0f, std::memory_order_relaxed);
+    rightInputPeak.store (0.0f, std::memory_order_relaxed);
     beatRms.store (0.0f, std::memory_order_relaxed);
     vocalRms.store (0.0f, std::memory_order_relaxed);
     vocalInputPeak.store (0.0f, std::memory_order_relaxed);

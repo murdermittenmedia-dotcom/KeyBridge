@@ -434,8 +434,8 @@ void KeyBridgeAudioProcessorEditor::changeListenerCallback (juce::ChangeBroadcas
 
 void KeyBridgeAudioProcessorEditor::timerCallback()
 {
-    leftMeter = 0.84f * leftMeter + 0.16f * processor.getInputLevel();
-    rightMeter = leftMeter;
+    leftMeter = 0.84f * leftMeter + 0.16f * processor.getLeftInputLevel();
+    rightMeter = 0.84f * rightMeter + 0.16f * processor.getRightInputLevel();
     std::move (levelHistory.begin() + 1, levelHistory.end(), levelHistory.begin());
     levelHistory.back() = processor.getInputLevel();
     refreshView();
