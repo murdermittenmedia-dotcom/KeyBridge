@@ -28,7 +28,6 @@ void KeyBridgeAudioProcessor::prepareToPlay (double newSampleRate, int)
     adaptiveEnergy = 0.0001f;
     chroma.fill (0.0f);
     fftData.fill (0.0f);
-    tonePhase = 0.0;
 }
 
 void KeyBridgeAudioProcessor::releaseResources()
@@ -99,22 +98,6 @@ void KeyBridgeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
         }
     }
 
-    const auto frequency = toneFrequency.load (std::memory_order_relaxed);
-    auto remaining = toneSamplesRemaining.load (std::memory_order_relaxed);
-    if (frequency > 0.0 && remaining > 0)
-    {
-        for (int i = 0; i < buffer.getNumSamples() && remaining > 0; ++i, --remaining)
-        {
-            const auto fade = juce::jmin (1.0f, remaining / static_cast<float> (sampleRate * 0.03));
-            const auto sample = static_cast<float> (0.10 * std::sin (tonePhase) * fade);
-            for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
-                buffer.addSample (channel, i, sample);
-            tonePhase += juce::MathConstants<double>::twoPi * frequency / sampleRate;
-        }
-        toneSamplesRemaining.store (remaining, std::memory_order_relaxed);
-        if (remaining == 0)
-            toneFrequency.store (0.0, std::memory_order_relaxed);
-    }
 }
 
 void KeyBridgeAudioProcessor::analyzeFrame()
@@ -163,10 +146,9 @@ void KeyBridgeAudioProcessor::analyzeFrame()
     for (auto& value : chroma) value *= 0.65f;
 }
 
-void KeyBridgeAudioProcessor::requestReferenceTone (int midiNote) noexcept
+void KeyBridgeAudioProcessor::requestReferenceTone (int) noexcept
 {
-    toneFrequency.store (440.0 * std::pow (2.0, (midiNote - 69) / 12.0), std::memory_order_relaxed);
-    toneSamplesRemaining.store (static_cast<int> (sampleRate * 0.65), std::memory_order_relaxed);
+    // Intentionally output-neutral: KeyBridge must never inject audio into the host bus.
 }
 
 juce::AudioProcessorEditor* KeyBridgeAudioProcessor::createEditor()

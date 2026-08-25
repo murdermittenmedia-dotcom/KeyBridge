@@ -60,9 +60,5 @@ private:
     std::atomic<int> detectedMode { 0 };
     std::atomic<float> keyConfidence { 0.0f };
     std::atomic<float> bpmConfidence { 0.0f };
-    std::atomic<double> toneFrequency { 0.0 };
-    std::atomic<int> toneSamplesRemaining { 0 };
-    double tonePhase = 0.0;
-
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (KeyBridgeAudioProcessor)
 };
