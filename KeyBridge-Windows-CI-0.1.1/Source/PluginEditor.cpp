@@ -272,13 +272,19 @@ void KeyBridgeAudioProcessorEditor::refreshRecommendation()
     guidanceLabel.setText ("Suggested range " + juce::String (low) + "-" + juce::String (high)
         + " MIDI   |   EXPRESSIVE: " + noteNames[static_cast<size_t> (expressive % 12)]
         + "   |   TENSION: " + noteNames[static_cast<size_t> (tension % 12)] + " (resolve deliberately)", juce::dontSendNotification);
-    settingsLabel.setText ("Auto-Tune: " + noteNames[static_cast<size_t> (key)] + " " + (mode == 0 ? "Major" : "Minor")
+    const auto melodicText = processor.isVocalMelodic() ? juce::String ("Medium") : juce::String ("Fast");
+    const auto humanizeText = processor.isVocalMelodic() ? juce::String ("35") : juce::String ("10");
+    const auto flexText = processor.isVocalMelodic() ? juce::String ("25") : juce::String ("10");
+    const auto modeText = delivery == "Sung" ? juce::String ("Modern") : juce::String ("Classic");
+    const auto qualityText = vibe == "Laid-back" ? juce::String ("HQ") : juce::String ("Low Latency");
+    settingsLabel.setText (juce::String ("Auto-Tune: ") + juce::String (noteNames[static_cast<size_t> (key)]) + " "
+        + juce::String (mode == 0 ? "Major" : "Minor")
         + " | Range " + juce::String (low) + "-" + juce::String (high) + " MIDI"
-        + " | Retune: " + (processor.isVocalMelodic() ? "Medium" : "Fast")
-        + " | Humanize: " + (processor.isVocalMelodic() ? "35" : "10") + "%"
-        + " | Flex-Tune: " + (processor.isVocalMelodic() ? "25" : "10") + "%"
-        + " | Mode: " + (delivery == "Sung" ? "Modern" : "Classic")
-        + " | Quality: " + (vibe == "Laid-back" ? "HQ" : "Low Latency"), juce::dontSendNotification);
+        + " | Retune: " + melodicText
+        + " | Humanize: " + humanizeText + "%"
+        + " | Flex-Tune: " + flexText + "%"
+        + " | Mode: " + modeText
+        + " | Quality: " + qualityText, juce::dontSendNotification);
 }
 
 void KeyBridgeAudioProcessorEditor::playReferenceTone (int midiNote)
