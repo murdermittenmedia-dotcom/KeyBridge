@@ -178,6 +178,7 @@ void KeyBridgeAudioProcessor::publishBeatResult (const tunerite::BeatAnalysisRes
     if (generation != analysisGeneration.load (std::memory_order_acquire))
         return;
     detectedBpm.store (result.bpm, std::memory_order_relaxed);
+    detectedAlternativeBpm.store (result.alternativeBpm, std::memory_order_relaxed);
     detectedKey.store (result.keyRoot, std::memory_order_relaxed);
     detectedMode.store (result.keyMode, std::memory_order_relaxed);
     bpmConfidence.store (static_cast<float> (result.bpmConfidence), std::memory_order_relaxed);
@@ -204,6 +205,7 @@ void KeyBridgeAudioProcessor::publishVocalResult (const tunerite::VocalAnalysisR
 void KeyBridgeAudioProcessor::resetLiveResults() noexcept
 {
     detectedBpm.store (0.0, std::memory_order_relaxed);
+    detectedAlternativeBpm.store (0.0, std::memory_order_relaxed);
     detectedKey.store (0, std::memory_order_relaxed);
     detectedMode.store (0, std::memory_order_relaxed);
     hasStableDetectionFlag.store (false, std::memory_order_relaxed);

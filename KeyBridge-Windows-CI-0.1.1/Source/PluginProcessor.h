@@ -38,6 +38,7 @@ public:
 
     double getHostBpm() const noexcept { return hostBpm.load (std::memory_order_relaxed); }
     double getDetectedBpm() const noexcept { return detectedBpm.load (std::memory_order_relaxed); }
+    double getAlternativeBpm() const noexcept { return detectedAlternativeBpm.load (std::memory_order_relaxed); }
     int getDetectedKey() const noexcept { return detectedKey.load (std::memory_order_relaxed); }
     bool hasStableDetection() const noexcept { return hasStableDetectionFlag.load (std::memory_order_relaxed); }
     int getDetectedMode() const noexcept { return detectedMode.load (std::memory_order_relaxed); }
@@ -121,6 +122,7 @@ private:
 
     std::atomic<double> hostBpm { 0.0 };
     std::atomic<double> detectedBpm { 0.0 };
+    std::atomic<double> detectedAlternativeBpm { 0.0 };
     std::atomic<int> detectedKey { 0 };
     std::atomic<int> detectedMode { 0 };
     std::atomic<bool> hasStableDetectionFlag { false };

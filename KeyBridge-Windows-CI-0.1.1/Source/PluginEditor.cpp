@@ -238,6 +238,7 @@ void KeyBridgeAudioProcessorEditor::timerCallback()
     const auto bpm = selectedMode == 2 && beatSaved ? processor.getSavedBeatBpm() : processor.getDetectedBpm();
     const auto keyConfidence = selectedMode == 2 && beatSaved ? processor.getSavedBeatKeyConfidence() : processor.getKeyConfidence();
     const auto bpmConfidence = selectedMode == 2 && beatSaved ? processor.getSavedBeatBpmConfidence() : processor.getBpmConfidence();
+    const auto alternativeBpm = processor.getAlternativeBpm();
     const auto& scale = scaleMode == 0 ? majorScale : minorScale;
 
     const auto modeText = selectedMode == 0 ? "BEAT ONLY — mute vocal, analyze beat"
@@ -275,6 +276,18 @@ void KeyBridgeAudioProcessorEditor::timerCallback()
         confidenceLabel.setText ("Key confidence " + juce::String (keyConfidence * 100.0f, 0) + "%   |   BPM confidence " + juce::String (bpmConfidence * 100.0f, 0) + "%", juce::dontSendNotification);
         notesLabel.setText (notes, juce::dontSendNotification);
         beatMetrics.setText ("RMS " + juce::String (processor.getBeatRms(), 3) + "   |   Frames " + juce::String (processor.getAnalysisFrames()) + "   |   Duration " + juce::String (processor.getAnalysisDuration(), 1) + "s", juce::dontSendNotification);
+    }
+    else if (selectedMode == 0 && bpm > 0.0)
+    {
+        keyLabel.setText ("Key: Uncertain — no scale is locked", juce::dontSendNotification);
+        bpmLabel.setText ("Audio BPM candidate: " + juce::String (bpm, 2)
+            + (alternativeBpm > 0.0 ? "  |  Alternative: " + juce::String (alternativeBpm, 2) : "")
+            + "  |  Project: " + juce::String (processor.getHostBpm(), 2), juce::dontSendNotification);
+        confidenceLabel.setText ("Key " + juce::String (keyConfidence * 100.0f, 0)
+            + "%  |  BPM " + juce::String (bpmConfidence * 100.0f, 0)
+            + "% — capture cleaner or longer audio before saving.", juce::dontSendNotification);
+        notesLabel.setText ("No Auto-Tune key or scale is recommended while the beat result is uncertain.", juce::dontSendNotification);
+        beatMetrics.setText ("Audio-derived candidate only; the displayed Project BPM is reference metadata, not detection.", juce::dontSendNotification);
     }
     else
     {
@@ -376,10 +389,11 @@ void KeyBridgeAudioProcessorEditor::copySettings()
 
 void KeyBridgeAudioProcessorEditor::copyDetectedBpm()
 {
-    const auto bpm = processor.hasSavedBeatResult() ? processor.getSavedBeatBpm() : processor.getDetectedBpm();
-    if (bpm <= 0.0)
+    const auto hasSavedBeat = processor.hasSavedBeatResult();
+    const auto bpm = hasSavedBeat ? processor.getSavedBeatBpm() : processor.getDetectedBpm();
+    if (bpm <= 0.0 || (! hasSavedBeat && ! processor.hasStableDetection()))
     {
-        guidanceLabel.setText ("No detected BPM is available. Run and save a Beat Only pass first.", juce::dontSendNotification);
+        guidanceLabel.setText ("No stable BPM is available to copy. Run and save a confident Beat Only pass first.", juce::dontSendNotification);
         return;
     }
 
