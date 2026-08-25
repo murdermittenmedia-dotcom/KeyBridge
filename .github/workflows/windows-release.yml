@@ -48,6 +48,25 @@ jobs:
           ctest --test-dir build-msvc -C Release --output-on-failure
           if ($LASTEXITCODE -ne 0) { throw "Shared AnalysisCore synthetic regression test failed" }
 
+      - name: Validate offline WAV analyzer reports
+        shell: pwsh
+        run: |
+          $fixtures = "build-msvc/synthetic-fixtures"
+          $reports = "build-msvc/offline-reports"
+          python "KeyBridge-Windows-CI-0.1.1/Tests/generate_synthetic_fixtures.py" --output $fixtures
+          $analyzer = "build-msvc/TuneriteOfflineAnalyzer_artefacts/Release/TuneriteOfflineAnalyzer.exe"
+          if (!(Test-Path $analyzer)) { throw "Offline analyzer executable was not produced" }
+          & $analyzer --input "$fixtures/c_eg_click_120bpm.wav" --mode beat --output "$reports/c_eg_click_120bpm"
+          if ($LASTEXITCODE -ne 0) { throw "Offline beat WAV analysis failed" }
+          $beat = Get-Content "$reports/c_eg_click_120bpm.json" -Raw | ConvertFrom-Json
+          if ([math]::Abs($beat.detected_bpm - 120.0) -gt 2.0) { throw "Offline beat report BPM was $($beat.detected_bpm), expected 120 +/- 2" }
+          if ($beat.key_uncertain -ne $true) { throw "C-E-G relative-mode fixture must remain explicitly key-uncertain" }
+          & $analyzer --input "$fixtures/a3_220hz.wav" --mode vocal --output "$reports/a3_220hz"
+          if ($LASTEXITCODE -ne 0) { throw "Offline vocal WAV analysis failed" }
+          $vocal = Get-Content "$reports/a3_220hz.json" -Raw | ConvertFrom-Json
+          if ([math]::Abs($vocal.average_midi - 57.0) -gt 0.5) { throw "Offline vocal report MIDI was $($vocal.average_midi), expected A3/MIDI 57 +/- 0.5" }
+          Write-Host "Validated offline WAV reports: beat BPM=$($beat.detected_bpm), vocal MIDI=$($vocal.average_midi)"
+
       - name: Normalize and validate VST3 manifest
         shell: pwsh
         run: |
