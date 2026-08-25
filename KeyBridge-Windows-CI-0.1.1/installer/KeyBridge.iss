@@ -1,10 +1,10 @@
 #define MyAppName "KeyBridge"
 #define MyAppVersion "0.1.1"
 #define MyAppPublisher "KeyBridge"
-#define MyAppExeName "KeyBridge-Setup-0.1.1.exe"
+#define MyAppExeName "KeyBridge-Setup-0.1.1"
 
 [Setup]
-AppId={{A7B7D1D5-8D53-4F6F-9B1E-KEYBRIDGE0011}
+AppId={{A7B7D1D5-8D53-4F6F-9B1E-4B5249443031}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
