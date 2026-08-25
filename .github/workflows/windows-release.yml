@@ -49,6 +49,8 @@ jobs:
           Remove-Item "$stage/KeyBridge.vst3" -Recurse -Force -ErrorAction SilentlyContinue
           Copy-Item -Recurse "build-msvc/KeyBridge_artefacts/Release/VST3/KeyBridge.vst3" "$stage/KeyBridge.vst3"
           Copy-Item "$project/README.md" "$stage/README.txt" -Force
+          if (!(Test-Path "$stage/KeyBridge.vst3/Contents/x86_64-win/KeyBridge.vst3")) { throw "Complete x86_64 VST3 binary is missing from staged bundle" }
+          if (!(Test-Path "$stage/KeyBridge.vst3/Contents/Resources")) { throw "VST3 Resources directory is missing from staged bundle" }
           New-Item -ItemType Directory -Force -Path dist | Out-Null
 
       - name: Install Inno Setup
@@ -61,9 +63,17 @@ jobs:
           & "C:/Program Files (x86)/Inno Setup 6/ISCC.exe" "KeyBridge-Windows-CI-0.1.1/installer/KeyBridge.iss"
           if (!(Test-Path "dist/KeyBridge-Setup-0.1.1.exe")) { throw "Expected installer dist/KeyBridge-Setup-0.1.1.exe was not produced" }
 
-      - name: Upload installer artifact
+      - name: Package standalone VST3 bundle
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "KeyBridge-Windows-CI-0.1.1/installer/stage/KeyBridge.vst3" -DestinationPath "dist/KeyBridge-VST3-Bundle-0.1.1.zip" -Force
+          if (!(Test-Path "dist/KeyBridge-VST3-Bundle-0.1.1.zip")) { throw "Expected VST3 bundle ZIP was not produced" }
+
+      - name: Upload Windows packages
         uses: actions/upload-artifact@v4
         with:
-          name: KeyBridge-Setup-0.1.1
-          path: dist/KeyBridge-Setup-0.1.1.exe
+          name: KeyBridge-Windows-Packages-0.1.1
+          path: |
+            dist/KeyBridge-Setup-0.1.1.exe
+            dist/KeyBridge-VST3-Bundle-0.1.1.zip
           if-no-files-found: error
