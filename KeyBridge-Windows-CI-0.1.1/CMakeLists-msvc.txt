@@ -70,3 +70,20 @@ if (MSVC)
     target_compile_options(TuneriteOfflineAnalyzer PRIVATE /W4 /permissive- /EHsc)
     set_property(TARGET TuneriteOfflineAnalyzer PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
+
+add_executable(TuneriteAnalysisCoreSyntheticTests
+    Source/AnalysisCoreSyntheticTests.cpp
+    Source/AnalysisCore.cpp
+)
+
+target_compile_features(TuneriteAnalysisCoreSyntheticTests PRIVATE cxx_std_17)
+
+target_include_directories(TuneriteAnalysisCoreSyntheticTests PRIVATE Source)
+
+if (MSVC)
+    target_compile_options(TuneriteAnalysisCoreSyntheticTests PRIVATE /W4 /permissive- /EHsc)
+    set_property(TARGET TuneriteAnalysisCoreSyntheticTests PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+
+enable_testing()
+add_test(NAME TuneriteAnalysisCoreSyntheticTests COMMAND TuneriteAnalysisCoreSyntheticTests)
