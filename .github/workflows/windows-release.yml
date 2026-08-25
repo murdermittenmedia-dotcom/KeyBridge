@@ -40,6 +40,32 @@ jobs:
           $vst3 = "build-msvc/KeyBridge_artefacts/Release/VST3/KeyBridge.vst3"
           if (!(Test-Path $vst3)) { throw "VST3 bundle was not produced at $vst3" }
 
+      - name: Normalize and validate VST3 manifest
+        shell: pwsh
+        run: |
+          $manifest = "build-msvc/KeyBridge_artefacts/Release/VST3/KeyBridge.vst3/Contents/Resources/moduleinfo.json"
+          if (!(Test-Path $manifest)) { throw "VST3 moduleinfo.json was not produced at $manifest" }
+          $raw = Get-Content $manifest -Raw
+          $strict = [regex]::Replace($raw, ',(?=\s*[}\]])', '')
+          Set-Content -Path $manifest -Value $strict -Encoding utf8NoBOM
+          $null = $strict | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw "moduleinfo.json is not valid strict JSON" }
+          Write-Host "Validated strict JSON manifest: $manifest"
+
+      - name: Verify VST3 exports
+        shell: pwsh
+        run: |
+          $binary = "build-msvc/KeyBridge_artefacts/Release/VST3/KeyBridge.vst3/Contents/x86_64-win/KeyBridge.vst3"
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vsroot = & $vswhere -latest -products * -property installationPath
+          $dumpbin = Get-ChildItem "$vsroot\VC\Tools\MSVC" -Filter dumpbin.exe -Recurse | Where-Object { $_.FullName -match "Hostx64\\x64" } | Select-Object -First 1
+          if ($null -eq $dumpbin) { throw "dumpbin.exe was not found on the Windows runner" }
+          $exports = & $dumpbin.FullName /exports $binary | Out-String
+          foreach ($name in @("InitDll", "GetPluginFactory", "ExitDll")) {
+            if ($exports -notmatch $name) { throw "Required VST3 export missing: $name" }
+          }
+          Write-Host "Verified VST3 exports: InitDll, GetPluginFactory, ExitDll"
+
       - name: Stage installer payload
         shell: pwsh
         run: |
