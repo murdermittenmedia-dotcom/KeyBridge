@@ -45,6 +45,26 @@ public:
     float getAnalysisDuration() const noexcept { return analysisDuration.load (std::memory_order_relaxed); }
     float getVocalVoicedPercent() const noexcept { return vocalVoicedPercent.load (std::memory_order_relaxed); }
     bool isAnalysisActive() const noexcept { return analysisEnabled.load (std::memory_order_relaxed); }
+    void setAnalysisMode (int mode) noexcept { analysisMode.store (juce::jlimit (0, 2, mode), std::memory_order_relaxed); }
+    int getAnalysisMode() const noexcept { return analysisMode.load (std::memory_order_relaxed); }
+    void saveBeatResult() noexcept;
+    void saveVocalResult() noexcept;
+    void clearBeatResult() noexcept;
+    void clearVocalResult() noexcept;
+    void resetAllResults() noexcept;
+    bool hasSavedBeatResult() const noexcept { return savedBeatResult.load (std::memory_order_relaxed); }
+    bool hasSavedVocalResult() const noexcept { return savedVocalResult.load (std::memory_order_relaxed); }
+    int getSavedBeatKey() const noexcept { return savedBeatKey.load (std::memory_order_relaxed); }
+    int getSavedBeatMode() const noexcept { return savedBeatMode.load (std::memory_order_relaxed); }
+    double getSavedBeatBpm() const noexcept { return savedBeatBpm.load (std::memory_order_relaxed); }
+    float getSavedBeatKeyConfidence() const noexcept { return savedBeatKeyConfidence.load (std::memory_order_relaxed); }
+    float getSavedBeatBpmConfidence() const noexcept { return savedBeatBpmConfidence.load (std::memory_order_relaxed); }
+    float getSavedVocalLowestMidi() const noexcept { return savedVocalLowestMidi.load (std::memory_order_relaxed); }
+    float getSavedVocalHighestMidi() const noexcept { return savedVocalHighestMidi.load (std::memory_order_relaxed); }
+    float getSavedVocalConfidence() const noexcept { return savedVocalConfidence.load (std::memory_order_relaxed); }
+    float getSavedVocalSustainedPercent() const noexcept { return savedVocalSustainedPercent.load (std::memory_order_relaxed); }
+    float getSavedVocalNoteChangeSpeed() const noexcept { return savedVocalNoteChangeSpeed.load (std::memory_order_relaxed); }
+    bool getSavedVocalMelodic() const noexcept { return savedVocalMelodic.load (std::memory_order_relaxed); }
     float getCaptureProgress() const noexcept { return captureProgress.load (std::memory_order_relaxed); }
     float getVocalInputLevel() const noexcept { return vocalInputLevel.load (std::memory_order_relaxed); }
     float getVocalConfidence() const noexcept { return vocalConfidence.load (std::memory_order_relaxed); }
@@ -99,6 +119,20 @@ private:
     bool hasStableKey = false;
 
     std::atomic<bool> analysisEnabled { true };
+    std::atomic<int> analysisMode { 0 }; // 0 Beat Only, 1 Vocal Only, 2 Combined Recommendation
+    std::atomic<bool> savedBeatResult { false };
+    std::atomic<bool> savedVocalResult { false };
+    std::atomic<int> savedBeatKey { 0 };
+    std::atomic<int> savedBeatMode { 0 };
+    std::atomic<double> savedBeatBpm { 0.0 };
+    std::atomic<float> savedBeatKeyConfidence { 0.0f };
+    std::atomic<float> savedBeatBpmConfidence { 0.0f };
+    std::atomic<float> savedVocalLowestMidi { 0.0f };
+    std::atomic<float> savedVocalHighestMidi { 0.0f };
+    std::atomic<float> savedVocalConfidence { 0.0f };
+    std::atomic<float> savedVocalSustainedPercent { 0.0f };
+    std::atomic<float> savedVocalNoteChangeSpeed { 0.0f };
+    std::atomic<bool> savedVocalMelodic { false };
     std::atomic<bool> resetRequested { false };
     std::atomic<bool> oneShotRequested { false };
     std::atomic<float> captureProgress { 0.0f };
