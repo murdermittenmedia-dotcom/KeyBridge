@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <iostream>
+#include <string>
 #include <vector>
 
 namespace
@@ -28,15 +29,14 @@ namespace
         return output;
     }
 
-    std::vector<float> makeVocalLikeTone (double hz, double seconds)
+    std::vector<float> makeReferenceTone (double hz, double seconds)
     {
         const auto count = static_cast<size_t> (std::round (seconds * sampleRate));
         std::vector<float> output (count, 0.0f);
         for (size_t i = 0; i < count; ++i)
         {
             const auto t = static_cast<double> (i) / sampleRate;
-            const auto phase = 2.0 * pi * hz * t;
-            output[i] = static_cast<float> (0.32 * std::sin (phase));
+            output[i] = static_cast<float> (0.32 * std::sin (2.0 * pi * hz * t));
         }
         return output;
     }
@@ -45,34 +45,58 @@ namespace
     {
         return std::abs (actual - expected) <= tolerance;
     }
+
+    bool checkBeat (double expectedBpm)
+    {
+        const auto result = tunerite::AnalysisCore::analyzeBeat (makeBeat (expectedBpm, 16.0), sampleRate);
+        std::cout << "Synthetic beat expected=" << expectedBpm << " detected=" << result.bpm
+                  << " alternative=" << result.alternativeBpm << " bpmConfidence=" << result.bpmConfidence
+                  << " keyRoot=" << result.keyRoot << " mode=" << result.keyMode
+                  << " keyConfidence=" << result.keyConfidence << "\n";
+        if (! result.usableAudio || ! closeTo (result.bpm, expectedBpm, 2.0))
+        {
+            std::cerr << "FAIL: expected " << expectedBpm << " BPM within 2 BPM.\n";
+            return false;
+        }
+        const bool expectedRelativePair = (result.keyRoot == 0 && result.keyMode == 0)
+                                       || (result.keyRoot == 4 && result.keyMode == 1);
+        if (! expectedRelativePair || ! result.keyUncertain)
+        {
+            std::cerr << "FAIL: C-E-G material must be reported as the C-Major/E-Minor harmonic family with explicit mode uncertainty.\n";
+            return false;
+        }
+        return true;
+    }
+
+    bool checkVocal (double hz, double expectedMidi, const std::string& name)
+    {
+        const auto result = tunerite::AnalysisCore::analyzeVocal (makeReferenceTone (hz, 6.0), sampleRate);
+        std::cout << "Synthetic vocal " << name << " expectedMidi=" << expectedMidi << " detected=" << result.averageMidi
+                  << " confidence=" << result.confidence << " voiced=" << result.voicedPercent << "\n";
+        if (! result.usableAudio || ! closeTo (result.averageMidi, expectedMidi, 0.5))
+        {
+            std::cerr << "FAIL: " << name << " was not tracked within 0.5 MIDI note.\n";
+            return false;
+        }
+        return true;
+    }
 }
 
 int main()
 {
     bool passed = true;
+    passed = checkBeat (101.0) && passed;
+    passed = checkBeat (120.0) && passed;
+    passed = checkBeat (200.0) && passed;
+    passed = checkVocal (220.0, 57.0, "A3") && passed;
+    passed = checkVocal (261.625565, 60.0, "C4") && passed;
 
-    const auto beat = tunerite::AnalysisCore::analyzeBeat (makeBeat (120.0, 16.0), sampleRate);
-    std::cout << "Synthetic beat: BPM=" << beat.bpm << " keyRoot=" << beat.keyRoot << " mode=" << beat.keyMode
-              << " bpmConfidence=" << beat.bpmConfidence << " keyConfidence=" << beat.keyConfidence << "\n";
-    if (! beat.usableAudio || ! closeTo (beat.bpm, 120.0, 2.0))
+    const std::vector<float> silence (static_cast<size_t> (sampleRate * 4.0), 0.0f);
+    const auto silenceResult = tunerite::AnalysisCore::analyzeBeat (silence, sampleRate);
+    std::cout << "Synthetic silence usable=" << silenceResult.usableAudio << " warning=" << silenceResult.warning << "\n";
+    if (silenceResult.usableAudio)
     {
-        std::cerr << "FAIL: 120 BPM synthetic beat was not estimated within 2 BPM.\n";
-        passed = false;
-    }
-    const bool expectedRelativePair = (beat.keyRoot == 0 && beat.keyMode == 0)
-                                   || (beat.keyRoot == 4 && beat.keyMode == 1);
-    if (! expectedRelativePair || ! beat.keyUncertain)
-    {
-        std::cerr << "FAIL: C-E-G material must be reported as the C-Major/E-Minor harmonic family with explicit mode uncertainty.\n";
-        passed = false;
-    }
-
-    const auto vocal = tunerite::AnalysisCore::analyzeVocal (makeVocalLikeTone (220.0, 6.0), sampleRate);
-    std::cout << "Synthetic vocal: averageMidi=" << vocal.averageMidi << " confidence=" << vocal.confidence
-              << " voiced=" << vocal.voicedPercent << "\n";
-    if (! vocal.usableAudio || ! closeTo (vocal.averageMidi, 57.0, 0.8))
-    {
-        std::cerr << "FAIL: A3 synthetic vocal was not tracked near MIDI 57.\n";
+        std::cerr << "FAIL: silence must not be reported as usable beat audio.\n";
         passed = false;
     }
 
