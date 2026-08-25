@@ -30,7 +30,7 @@ KeyBridgeAudioProcessorEditor::KeyBridgeAudioProcessorEditor (KeyBridgeAudioProc
     setupLabel (confidenceLabel, "Key confidence: --   |   BPM confidence: --", 13.0f, juce::Justification::centred);
     setupLabel (notesLabel, "Scale notes: listening...", 15.0f, juce::Justification::centredLeft);
     setupLabel (recommendationLabel, "Vocal Fit guidance: choose a profile and range", 16.0f, juce::Justification::centredLeft);
-    setupLabel (guidanceLabel, "Beat-only guidance: Tunerite does not analyze or modify vocals. Safe notes remain inside the detected scale.", 12.0f, juce::Justification::centredLeft);
+    setupLabel (guidanceLabel, "Beat-only guidance: Tunerite does not analyze or modify vocals. Press ANALYZE CURRENT AUDIO for an 8-second capture.", 12.0f, juce::Justification::centredLeft);
 
     const auto setupCaption = [this] (juce::Label& label, const juce::String& text)
     {
@@ -176,8 +176,12 @@ void KeyBridgeAudioProcessorEditor::timerCallback()
     keyLabel.setText (processor.hasStableDetection()
         ? juce::String ("Key: ") + noteNames[static_cast<size_t> (key)] + " " + modeName
         : juce::String ("Key: Analyzing beat..."), juce::dontSendNotification);
-    bpmLabel.setText ("Project BPM: " + (host > 0.0 ? juce::String (host, 2) : "--")
-                      + "   |   Detected Audio BPM: " + (detected > 0.0 ? juce::String (detected, 2) : "--"), juce::dontSendNotification);
+    const auto progress = processor.getCaptureProgress();
+    if (processor.isAnalysisActive() && progress > 0.0f && progress < 1.0f)
+        bpmLabel.setText ("Analyzing current audio... " + juce::String (progress * 100.0f, 0) + "%", juce::dontSendNotification);
+    else
+        bpmLabel.setText ("Project BPM: " + (host > 0.0 ? juce::String (host, 2) : "--")
+                          + "   |   Detected Audio BPM: " + (detected > 0.0 ? juce::String (detected, 2) : "--"), juce::dontSendNotification);
     confidenceLabel.setText ("Key confidence: " + juce::String (keyConfidence * 100.0f, 0) + "%   |   BPM confidence: "
                              + juce::String (bpmConfidence * 100.0f, 0) + "%   |   Input: "
                              + (processor.getInputLevel() > 0.0001f ? "ACTIVE" : "SILENT")

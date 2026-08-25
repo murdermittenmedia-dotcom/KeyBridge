@@ -39,6 +39,8 @@ public:
     float getBpmConfidence() const noexcept { return bpmConfidence.load (std::memory_order_relaxed); }
     float getInputLevel() const noexcept { return inputLevel.load (std::memory_order_relaxed); }
     int getAnalysisFrames() const noexcept { return analysisFrames.load (std::memory_order_relaxed); }
+    bool isAnalysisActive() const noexcept { return analysisEnabled.load (std::memory_order_relaxed); }
+    float getCaptureProgress() const noexcept { return captureProgress.load (std::memory_order_relaxed); }
     void requestReferenceTone (int midiNote) noexcept;
     void startFreshAnalysis() noexcept;
     void setAnalysisEnabled (bool enabled) noexcept { analysisEnabled.store (enabled, std::memory_order_relaxed); }
@@ -60,6 +62,8 @@ private:
     std::array<float, 128> energyHistory{};
     int energyHistoryWrite = 0;
     int energyHistoryCount = 0;
+    int captureSamples = 0;
+    bool oneShotMode = false;
     int candidateKey = 0;
     int candidateMode = 0;
     int candidateWins = 0;
@@ -69,6 +73,8 @@ private:
 
     std::atomic<bool> analysisEnabled { true };
     std::atomic<bool> resetRequested { false };
+    std::atomic<bool> oneShotRequested { false };
+    std::atomic<float> captureProgress { 0.0f };
     std::atomic<double> hostBpm { 0.0 };
     std::atomic<double> detectedBpm { 0.0 };
     std::atomic<int> detectedKey { 0 };

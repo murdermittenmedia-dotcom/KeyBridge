@@ -33,6 +33,11 @@ void KeyBridgeAudioProcessor::prepareToPlay (double newSampleRate, int)
     energyHistory.fill (0.0f);
     energyHistoryWrite = 0;
     energyHistoryCount = 0;
+    captureSamples = 0;
+    oneShotMode = false;
+    captureProgress.store (0.0f, std::memory_order_relaxed);
+    resetRequested.store (false, std::memory_order_relaxed);
+    oneShotRequested.store (false, std::memory_order_relaxed);
     candidateKey = 0;
     candidateMode = 0;
     candidateWins = 0;
@@ -81,6 +86,9 @@ void KeyBridgeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
 
     if (resetRequested.exchange (false, std::memory_order_acq_rel))
     {
+        oneShotMode = oneShotRequested.exchange (false, std::memory_order_acq_rel);
+        captureSamples = 0;
+        captureProgress.store (0.0f, std::memory_order_relaxed);
         fftFill = 0;
         analysisFrameCount = 0;
         previousEnergy = 0.0f;
@@ -115,22 +123,7 @@ void KeyBridgeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
             for (int n = 0; n < fftFill; ++n)
                 energy += fftData[static_cast<size_t> (n)] * fftData[static_cast<size_t> (n)];
             energy /= static_cast<float> (fftFill);
-            const auto rise = energy - previousEnergy;
             adaptiveEnergy = 0.995f * adaptiveEnergy + 0.005f * energy;
-            if (rise > juce::jmax (0.00002f, adaptiveEnergy * 0.35f)
-                && samplesSinceOnset > static_cast<int> (sampleRate * 0.25)
-                && samplesSinceOnset < static_cast<int> (sampleRate * 1.0))
-            {
-                const auto bpm = 60.0 * sampleRate / static_cast<double> (samplesSinceOnset);
-                const auto folded = bpm < 70.0 ? bpm * 2.0 : (bpm > 180.0 ? bpm * 0.5 : bpm);
-                if (folded >= 60.0 && folded <= 180.0)
-                {
-                    const auto old = detectedBpm.load (std::memory_order_relaxed);
-                    detectedBpm.store (old <= 0.0 ? folded : 0.82 * old + 0.18 * folded, std::memory_order_relaxed);
-                    bpmConfidence.store (juce::jmin (1.0f, bpmConfidence.load (std::memory_order_relaxed) + 0.05f), std::memory_order_relaxed);
-                }
-                samplesSinceOnset = 0;
-            }
             previousEnergy = energy;
             energyHistory[static_cast<size_t> (energyHistoryWrite)] = energy;
             energyHistoryWrite = (energyHistoryWrite + 1) % static_cast<int> (energyHistory.size());
@@ -146,6 +139,17 @@ void KeyBridgeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
 
     inputLevel.store (0.85f * inputLevel.load (std::memory_order_relaxed) + 0.15f * blockPeak, std::memory_order_relaxed);
     analysisFrames.fetch_add (1, std::memory_order_relaxed);
+    if (oneShotMode)
+    {
+        captureSamples += buffer.getNumSamples();
+        const auto progress = juce::jmin (1.0f, static_cast<float> (captureSamples) / static_cast<float> (sampleRate * 8.0));
+        captureProgress.store (progress, std::memory_order_relaxed);
+        if (progress >= 1.0f)
+        {
+            oneShotMode = false;
+            analysisEnabled.store (false, std::memory_order_relaxed);
+        }
+    }
 }
 
 void KeyBridgeAudioProcessor::estimateAudioBpm()
@@ -257,6 +261,7 @@ void KeyBridgeAudioProcessor::analyzeFrame()
 
 void KeyBridgeAudioProcessor::startFreshAnalysis() noexcept
 {
+    oneShotRequested.store (true, std::memory_order_release);
     resetRequested.store (true, std::memory_order_release);
     analysisEnabled.store (true, std::memory_order_release);
 }
