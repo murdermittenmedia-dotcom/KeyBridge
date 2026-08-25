@@ -53,6 +53,8 @@ juce_add_console_app(TuneriteOfflineAnalyzer
     PRODUCT_NAME "Tunerite Offline Analyzer"
 )
 
+juce_generate_juce_header(TuneriteOfflineAnalyzer)
+
 target_sources(TuneriteOfflineAnalyzer PRIVATE
     Source/OfflineAnalyzer.cpp
     Source/AnalysisCore.cpp
