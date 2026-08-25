@@ -1,0 +1,61 @@
+name: KeyBridge Windows Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-windows:
+    runs-on: windows-2022
+    permissions:
+      contents: read
+      actions: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure MSVC x64 Release
+        shell: pwsh
+        run: |
+          Copy-Item CMakeLists.txt CMakeLists.before-msvc.txt -Force
+          Copy-Item CMakeLists-msvc.txt CMakeLists.txt -Force
+          cmake -S . -B build-msvc -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=Release -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+
+      - name: Build VST3
+        shell: pwsh
+        run: |
+          cmake --build build-msvc --config Release --target KeyBridge_VST3 --parallel
+          if (!(Test-Path "build-msvc/KeyBridge_artefacts/Release/VST3/KeyBridge.vst3")) { throw "VST3 bundle was not produced" }
+
+      - name: Restore project file
+        if: always()
+        shell: pwsh
+        run: |
+          if (Test-Path CMakeLists.before-msvc.txt) { Copy-Item CMakeLists.before-msvc.txt CMakeLists.txt -Force }
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Stage installer files
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path installer/stage | Out-Null
+          Copy-Item -Recurse build-msvc/KeyBridge_artefacts/Release/VST3/KeyBridge.vst3 installer/stage/KeyBridge.vst3
+          Copy-Item README.md installer/stage/README.txt
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          & "C:/Program Files (x86)/Inno Setup 6/ISCC.exe" installer/KeyBridge.iss
+          if (!(Test-Path "dist/KeyBridge-Setup-0.1.1.exe")) { throw "Installer was not produced" }
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: KeyBridge-Setup-0.1.1
+          path: dist/KeyBridge-Setup-0.1.1.exe
+          if-no-files-found: error
