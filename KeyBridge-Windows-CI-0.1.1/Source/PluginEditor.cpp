@@ -138,7 +138,7 @@ void KeyBridgeAudioProcessorEditor::timerCallback()
 
     juce::String scaleText = "Scale notes: ";
     for (int i = 0; i < 7; ++i)
-        scaleText += noteNames[static_cast<size_t> ((key + scale[static_cast<size_t> (i)]) % 12)] + (i == 6 ? "" : "  ");
+        scaleText += juce::String (noteNames[static_cast<size_t> ((key + scale[static_cast<size_t> (i)]) % 12)]) + (i == 6 ? juce::String() : juce::String ("  "));
     notesLabel.setText (scaleText, juce::dontSendNotification);
     refreshRecommendation();
 }
@@ -155,10 +155,10 @@ void KeyBridgeAudioProcessorEditor::refreshRecommendation()
     const auto rootMidi = 60 + key;
     const auto preferred = juce::jlimit (low, high, rootMidi + (vibe == "Energetic" ? 7 : (vibe == "Sad" || vibe == "Dark" ? 3 : 0)));
     const auto modeName = mode == 0 ? "major" : "minor";
-    recommendationLabel.setText ("Vocal Fit: starting note " + juce::String (noteNames[static_cast<size_t> (preferred % 12)])
+    recommendationLabel.setText (juce::String ("Vocal Fit: starting note ") + juce::String (noteNames[static_cast<size_t> (preferred % 12)])
                                  + juce::String (preferred) + "  |  " + profile + " / " + genre + " / " + vibe
                                  + "  |  fit range " + juce::String (low) + "-" + juce::String (high)
-                                 + "  |  " + noteNames[static_cast<size_t> (key)] + " " + modeName,
+                                 + "  |  " + juce::String (noteNames[static_cast<size_t> (key)]) + " " + modeName,
                                  juce::dontSendNotification);
 }
 
