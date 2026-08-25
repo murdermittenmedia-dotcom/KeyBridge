@@ -41,6 +41,16 @@ public:
     int getAnalysisFrames() const noexcept { return analysisFrames.load (std::memory_order_relaxed); }
     bool isAnalysisActive() const noexcept { return analysisEnabled.load (std::memory_order_relaxed); }
     float getCaptureProgress() const noexcept { return captureProgress.load (std::memory_order_relaxed); }
+    float getVocalInputLevel() const noexcept { return vocalInputLevel.load (std::memory_order_relaxed); }
+    float getVocalConfidence() const noexcept { return vocalConfidence.load (std::memory_order_relaxed); }
+    float getVocalLowestMidi() const noexcept { return vocalLowestMidi.load (std::memory_order_relaxed); }
+    float getVocalHighestMidi() const noexcept { return vocalHighestMidi.load (std::memory_order_relaxed); }
+    float getVocalAverageMidi() const noexcept { return vocalAverageMidi.load (std::memory_order_relaxed); }
+    float getVocalPitchAccuracy() const noexcept { return vocalPitchAccuracy.load (std::memory_order_relaxed); }
+    float getVocalVibrato() const noexcept { return vocalVibrato.load (std::memory_order_relaxed); }
+    float getVocalSustainedPercent() const noexcept { return vocalSustainedPercent.load (std::memory_order_relaxed); }
+    float getVocalNoteChangeSpeed() const noexcept { return vocalNoteChangeSpeed.load (std::memory_order_relaxed); }
+    bool isVocalMelodic() const noexcept { return vocalMelodic.load (std::memory_order_relaxed); }
     void requestReferenceTone (int midiNote) noexcept;
     void startFreshAnalysis() noexcept;
     void setAnalysisEnabled (bool enabled) noexcept { analysisEnabled.store (enabled, std::memory_order_relaxed); }
@@ -48,6 +58,7 @@ public:
 private:
     void analyzeFrame();
     void estimateAudioBpm();
+    void analyzeVocalBlock (const juce::AudioBuffer<float>& vocalBuffer);
 
     double sampleRate = 44100.0;
     static constexpr int fftOrder = 13;
@@ -55,6 +66,16 @@ private:
     std::unique_ptr<juce::dsp::FFT> fft;
     juce::HeapBlock<float, true> fftData;
     std::array<float, 12> chroma{};
+    std::array<float, 2048> vocalPitchBuffer{};
+    int vocalPitchFill = 0;
+    float vocalMinMidi = 127.0f;
+    float vocalMaxMidi = 0.0f;
+    float vocalMidiSum = 0.0f;
+    int vocalPitchCount = 0;
+    int vocalSustainedBlocks = 0;
+    int vocalTotalBlocks = 0;
+    int vocalNoteChanges = 0;
+    float vocalPreviousMidi = 0.0f;
     int fftFill = 0;
     int analysisFrameCount = 0;
     float previousEnergy = 0.0f;
@@ -84,6 +105,16 @@ private:
     std::atomic<float> keyConfidence { 0.0f };
     std::atomic<float> bpmConfidence { 0.0f };
     std::atomic<float> inputLevel { 0.0f };
+    std::atomic<float> vocalInputLevel { 0.0f };
+    std::atomic<float> vocalConfidence { 0.0f };
+    std::atomic<float> vocalLowestMidi { 0.0f };
+    std::atomic<float> vocalHighestMidi { 0.0f };
+    std::atomic<float> vocalAverageMidi { 0.0f };
+    std::atomic<float> vocalPitchAccuracy { 0.0f };
+    std::atomic<float> vocalVibrato { 0.0f };
+    std::atomic<float> vocalSustainedPercent { 0.0f };
+    std::atomic<float> vocalNoteChangeSpeed { 0.0f };
+    std::atomic<bool> vocalMelodic { false };
     std::atomic<int> analysisFrames { 0 };
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (KeyBridgeAudioProcessor)
 };

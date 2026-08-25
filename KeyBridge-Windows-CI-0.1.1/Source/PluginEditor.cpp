@@ -25,7 +25,9 @@ KeyBridgeAudioProcessorEditor::KeyBridgeAudioProcessorEditor (KeyBridgeAudioProc
     };
 
     setupLabel (title, "TUNERITE", 24.0f, juce::Justification::centredLeft);
-    setupLabel (sectionLabel, "BEAT ANALYSIS  /  LISTEN TO THE AUDIO ON THIS MIXER TRACK", 12.0f, juce::Justification::centredLeft);
+    setupLabel (sectionLabel, "BEAT ANALYSIS  /  MAIN INPUT ONLY", 12.0f, juce::Justification::centredLeft);
+    setupLabel (beatStatusLabel, "BEAT INPUT: NO SIGNAL", 12.0f, juce::Justification::centredLeft);
+    setupLabel (vocalStatusLabel, "VOCAL INPUT: NO SIGNAL", 12.0f, juce::Justification::centredLeft);
     setupLabel (keyLabel, "Key: Listening", 26.0f, juce::Justification::centred);
     setupLabel (bpmLabel, "Project BPM: --   |   Detected Audio BPM: --", 15.0f, juce::Justification::centred);
     setupLabel (confidenceLabel, "Key confidence: --   |   BPM confidence: --", 13.0f, juce::Justification::centred);
@@ -33,6 +35,8 @@ KeyBridgeAudioProcessorEditor::KeyBridgeAudioProcessorEditor (KeyBridgeAudioProc
     setupLabel (recommendationLabel, "Vocal Fit guidance: choose a profile and range", 16.0f, juce::Justification::centredLeft);
     setupLabel (guidanceLabel, "Vocal Fit is guidance from the detected beat key; Tunerite does not analyze or modify vocals.", 12.0f, juce::Justification::centredLeft);
     setupLabel (bpmActionLabel, "Host BPM is read-only in a standard VST3. This button copies the detected BPM for manual DAW entry.", 11.0f, juce::Justification::centredLeft);
+    setupLabel (vocalMetricsLabel, "Vocal metrics: connect the Vocal Input sidechain to analyze range and delivery.", 12.0f, juce::Justification::centredLeft);
+    setupLabel (settingsLabel, "Auto-Tune recommendations will appear after both Beat Input and Vocal Input are analyzed.", 12.0f, juce::Justification::centredLeft);
 
     const auto setupCaption = [this] (juce::Label& label, const juce::String& text)
     {
@@ -87,8 +91,10 @@ KeyBridgeAudioProcessorEditor::KeyBridgeAudioProcessorEditor (KeyBridgeAudioProc
     addAndMakeVisible (holdButton);
     addAndMakeVisible (lockButton);
     addAndMakeVisible (setBpmButton);
+    addAndMakeVisible (copySettingsButton);
     analyzeButton.onClick = [this] { processor.startFreshAnalysis(); bpmActionLabel.setText ("Capturing a fresh 8-second beat window...", juce::dontSendNotification); };
     setBpmButton.onClick = [this] { copyDetectedBpm(); };
+    copySettingsButton.onClick = [this] { copySettings(); };
     holdButton.onClick = [this] { processor.setAnalysisEnabled (false); };
     lockButton.onClick = [this] { processor.setAnalysisEnabled (false); };
 
@@ -140,17 +146,21 @@ void KeyBridgeAudioProcessorEditor::resized()
 {
     title.setBounds (24, 14, 300, 30);
     sectionLabel.setBounds (30, 42, 760, 18);
-    keyLabel.setBounds (30, 70, 330, 48);
+    beatStatusLabel.setBounds (30, 58, 240, 18);
+    vocalStatusLabel.setBounds (540, 58, 240, 18);
+    keyLabel.setBounds (30, 78, 330, 48);
     recommendationLabel.setBounds (30, 230, 760, 32);
     guidanceLabel.setBounds (30, 266, 760, 24);
     bpmActionLabel.setBounds (30, 202, 760, 20);
-    bpmLabel.setBounds (365, 72, 410, 28);
-    confidenceLabel.setBounds (365, 108, 410, 24);
-    notesLabel.setBounds (30, 132, 740, 28);
-    displayLabel.setBounds (30, 438, 80, 18);
-    themeLabel.setBounds (200, 438, 80, 18);
-    displayModeBox.setBounds (30, 459, 130, 28);
-    themeBox.setBounds (200, 459, 130, 28);
+    vocalMetricsLabel.setBounds (30, 410, 760, 22);
+    settingsLabel.setBounds (30, 510, 760, 22);
+    bpmLabel.setBounds (365, 80, 410, 28);
+    confidenceLabel.setBounds (365, 116, 410, 24);
+    notesLabel.setBounds (30, 140, 740, 28);
+    displayLabel.setBounds (30, 535, 80, 18);
+    themeLabel.setBounds (200, 535, 80, 18);
+    displayModeBox.setBounds (30, 556, 130, 28);
+    themeBox.setBounds (200, 556, 130, 28);
 
     profileLabel.setBounds (30, 310, 125, 18);
     rangeLabel.setBounds (170, 310, 180, 18);
@@ -168,8 +178,9 @@ void KeyBridgeAudioProcessorEditor::resized()
     holdButton.setBounds (230, 370, 80, 32);
     lockButton.setBounds (320, 370, 80, 32);
     setBpmButton.setBounds (420, 370, 180, 32);
+    copySettingsButton.setBounds (620, 370, 140, 32);
     for (int i = 0; i < 12; ++i)
-        noteButtons[static_cast<size_t> (i)].setBounds (30 + i * 63, 589, 57, 38);
+        noteButtons[static_cast<size_t> (i)].setBounds (30 + i * 63, 604, 57, 38);
 }
 
 void KeyBridgeAudioProcessorEditor::timerCallback()
@@ -196,10 +207,27 @@ void KeyBridgeAudioProcessorEditor::timerCallback()
         if (detected > 0.0 && progress >= 1.0f)
             bpmActionLabel.setText ("Analysis complete. Use COPY DETECTED BPM to place this value on the DAW tempo field.", juce::dontSendNotification);
     }
-    confidenceLabel.setText ("Key confidence: " + juce::String (keyConfidence * 100.0f, 0) + "%   |   BPM confidence: "
-                             + juce::String (bpmConfidence * 100.0f, 0) + "%   |   Input: "
-                             + (processor.getInputLevel() > 0.0001f ? "ACTIVE" : "SILENT")
-                             + "   |   Frames: " + juce::String (processor.getAnalysisFrames()), juce::dontSendNotification);
+    confidenceLabel.setText ("Beat confidence: " + juce::String (keyConfidence * 100.0f, 0) + "% key / "
+                             + juce::String (bpmConfidence * 100.0f, 0) + "% BPM   |   Frames: "
+                             + juce::String (processor.getAnalysisFrames()), juce::dontSendNotification);
+    const auto beatActive = processor.getInputLevel() > 0.0001f;
+    const auto vocalActive = processor.getVocalInputLevel() > 0.0001f;
+    beatStatusLabel.setText (beatActive ? "BEAT INPUT: ACTIVE" : "BEAT INPUT: NO SIGNAL", juce::dontSendNotification);
+    vocalStatusLabel.setText (vocalActive ? "VOCAL INPUT: ACTIVE" : "VOCAL INPUT: NO SIGNAL", juce::dontSendNotification);
+    if (vocalActive && processor.getVocalConfidence() > 0.0f)
+    {
+        vocalMetricsLabel.setText ("Vocal range: " + juce::String (processor.getVocalLowestMidi(), 0) + "-" + juce::String (processor.getVocalHighestMidi(), 0)
+            + " MIDI | Avg: " + juce::String (processor.getVocalAverageMidi(), 0)
+            + " | Pitch confidence: " + juce::String (processor.getVocalConfidence() * 100.0f, 0) + "%"
+            + " | Sustained: " + juce::String (processor.getVocalSustainedPercent() * 100.0f, 0) + "%"
+            + " | Changes: " + juce::String (processor.getVocalNoteChangeSpeed(), 1) + "/sec"
+            + " | " + (processor.isVocalMelodic() ? "Melodic" : "Spoken/Rap"), juce::dontSendNotification);
+    }
+    else
+    {
+        vocalMetricsLabel.setText ("VOCAL INPUT REQUIRED FOR AUTO-TUNE RECOMMENDATIONS", juce::dontSendNotification);
+        settingsLabel.setText ("Connect the isolated vocal bus to the Vocal Input sidechain; beat key/BPM analysis remains independent.", juce::dontSendNotification);
+    }
 
     juce::String scaleText = "Scale notes: ";
     for (int i = 0; i < 7; ++i)
@@ -227,8 +255,14 @@ void KeyBridgeAudioProcessorEditor::refreshRecommendation()
 
     if (! processor.hasStableDetection())
     {
-        recommendationLabel.setText ("VOCAL FIT GUIDANCE: waiting for a stable beat key. Tunerite does not analyze vocals.", juce::dontSendNotification);
-        guidanceLabel.setText ("Play the beat, then press ANALYZE CURRENT AUDIO to begin a fresh beat-only measurement.", juce::dontSendNotification);
+        recommendationLabel.setText ("BEAT INPUT REQUIRED FOR KEY AND BPM", juce::dontSendNotification);
+        guidanceLabel.setText ("Route the beat to the main input, then press ANALYZE CURRENT AUDIO. Tunerite does not combine beat and vocal audio.", juce::dontSendNotification);
+        return;
+    }
+    if (processor.getVocalInputLevel() <= 0.0001f)
+    {
+        recommendationLabel.setText ("VOCAL INPUT REQUIRED FOR AUTO-TUNE RECOMMENDATIONS", juce::dontSendNotification);
+        guidanceLabel.setText ("Connect the isolated vocal bus to the Vocal Input sidechain. Beat key and BPM remain available without it.", juce::dontSendNotification);
         return;
     }
 
@@ -238,11 +272,33 @@ void KeyBridgeAudioProcessorEditor::refreshRecommendation()
     guidanceLabel.setText ("Suggested range " + juce::String (low) + "-" + juce::String (high)
         + " MIDI   |   EXPRESSIVE: " + noteNames[static_cast<size_t> (expressive % 12)]
         + "   |   TENSION: " + noteNames[static_cast<size_t> (tension % 12)] + " (resolve deliberately)", juce::dontSendNotification);
+    settingsLabel.setText ("Auto-Tune: " + noteNames[static_cast<size_t> (key)] + " " + (mode == 0 ? "Major" : "Minor")
+        + " | Range " + juce::String (low) + "-" + juce::String (high) + " MIDI"
+        + " | Retune: " + (processor.isVocalMelodic() ? "Medium" : "Fast")
+        + " | Humanize: " + (processor.isVocalMelodic() ? "35" : "10") + "%"
+        + " | Flex-Tune: " + (processor.isVocalMelodic() ? "25" : "10") + "%"
+        + " | Mode: " + (delivery == "Sung" ? "Modern" : "Classic")
+        + " | Quality: " + (vibe == "Laid-back" ? "HQ" : "Low Latency"), juce::dontSendNotification);
 }
 
 void KeyBridgeAudioProcessorEditor::playReferenceTone (int midiNote)
 {
     processor.requestReferenceTone (midiNote);
+}
+
+void KeyBridgeAudioProcessorEditor::copySettings()
+{
+    const auto key = juce::jlimit (0, 11, processor.getDetectedKey());
+    const auto settings = juce::String ("Tunerite by MurderMittenMedia\n")
+        + "Auto-Tune Key: " + juce::String (key) + "\n"
+        + "Auto-Tune Scale: " + (processor.getDetectedMode() == 0 ? "Major" : "Minor") + "\n"
+        + "Detected BPM: " + juce::String (processor.getDetectedBpm(), 2) + "\n"
+        + "Vocal MIDI Range: " + juce::String (processor.getVocalLowestMidi(), 0) + "-" + juce::String (processor.getVocalHighestMidi(), 0) + "\n"
+        + "Vocal confidence: " + juce::String (processor.getVocalConfidence() * 100.0f, 0) + "%\n"
+        + "Retune Speed: Medium | Humanize: 35% | Flex-Tune: 25%\n"
+        + "Mode: Modern | Quality: Low Latency";
+    juce::SystemClipboard::copyTextToClipboard (settings);
+    settingsLabel.setText ("Recommended settings copied to clipboard. Tunerite does not control Auto-Tune directly.", juce::dontSendNotification);
 }
 
 void KeyBridgeAudioProcessorEditor::copyDetectedBpm()

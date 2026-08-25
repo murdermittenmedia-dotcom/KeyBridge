@@ -12,8 +12,9 @@ namespace
 
 KeyBridgeAudioProcessor::KeyBridgeAudioProcessor()
     : AudioProcessor (BusesProperties()
-        .withInput  ("Input",  juce::AudioChannelSet::stereo(), true)
-        .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
+        .withInput  ("Input",       juce::AudioChannelSet::stereo(), true)
+        .withInput  ("Vocal Input", juce::AudioChannelSet::stereo(), false)
+        .withOutput ("Output",      juce::AudioChannelSet::stereo(), true)),
       fft (std::make_unique<juce::dsp::FFT> (fftOrder))
 {
     fftData.allocate (fftSize * 2, true);
@@ -52,6 +53,26 @@ void KeyBridgeAudioProcessor::prepareToPlay (double newSampleRate, int)
     bpmConfidence.store (0.0f, std::memory_order_relaxed);
     analysisFrames.store (0, std::memory_order_relaxed);
     inputLevel.store (0.0f, std::memory_order_relaxed);
+    vocalInputLevel.store (0.0f, std::memory_order_relaxed);
+    vocalConfidence.store (0.0f, std::memory_order_relaxed);
+    vocalLowestMidi.store (0.0f, std::memory_order_relaxed);
+    vocalHighestMidi.store (0.0f, std::memory_order_relaxed);
+    vocalAverageMidi.store (0.0f, std::memory_order_relaxed);
+    vocalPitchAccuracy.store (0.0f, std::memory_order_relaxed);
+    vocalVibrato.store (0.0f, std::memory_order_relaxed);
+    vocalSustainedPercent.store (0.0f, std::memory_order_relaxed);
+    vocalNoteChangeSpeed.store (0.0f, std::memory_order_relaxed);
+    vocalMelodic.store (false, std::memory_order_relaxed);
+    vocalPitchFill = 0;
+    vocalMinMidi = 127.0f;
+    vocalMaxMidi = 0.0f;
+    vocalMidiSum = 0.0f;
+    vocalPitchCount = 0;
+    vocalSustainedBlocks = 0;
+    vocalTotalBlocks = 0;
+    vocalNoteChanges = 0;
+    vocalPreviousMidi = 0.0f;
+    std::fill (vocalPitchBuffer.begin(), vocalPitchBuffer.end(), 0.0f);
     std::fill (fftData.get(), fftData.get() + fftSize * 2, 0.0f);
 }
 
@@ -63,11 +84,15 @@ void KeyBridgeAudioProcessor::releaseResources()
 bool KeyBridgeAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 {
     const auto input = layouts.getChannelSet (true, 0);
+    const auto vocalInput = getBusCount (true) > 1 ? layouts.getChannelSet (true, 1) : juce::AudioChannelSet::disabled();
     const auto output = layouts.getChannelSet (false, 0);
     const auto inputMatchesOutput = input.isDisabled() || input == output;
+    const auto vocalIsSupported = vocalInput.isDisabled()
+                               || vocalInput == juce::AudioChannelSet::mono()
+                               || vocalInput == juce::AudioChannelSet::stereo();
     const auto outputIsSupported = output == juce::AudioChannelSet::mono()
                                 || output == juce::AudioChannelSet::stereo();
-    return inputMatchesOutput && outputIsSupported;
+    return inputMatchesOutput && vocalIsSupported && outputIsSupported;
 }
 
 void KeyBridgeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
@@ -81,6 +106,14 @@ void KeyBridgeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
 
     if (buffer.getNumChannels() == 0 || buffer.getNumSamples() == 0 || sampleRate <= 0.0 || fft == nullptr)
         return;
+
+    if (getBusCount (true) > 1)
+    {
+        auto vocalBuffer = getBusBuffer (buffer, true, 1);
+        if (vocalBuffer.getNumChannels() > 0)
+            analyzeVocalBlock (vocalBuffer);
+    }
+
     if (!analysisEnabled.load (std::memory_order_relaxed))
         return;
 
@@ -104,6 +137,25 @@ void KeyBridgeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
         detectedBpm.store (0.0, std::memory_order_relaxed);
         keyConfidence.store (0.0f, std::memory_order_relaxed);
         bpmConfidence.store (0.0f, std::memory_order_relaxed);
+        vocalInputLevel.store (0.0f, std::memory_order_relaxed);
+        vocalConfidence.store (0.0f, std::memory_order_relaxed);
+        vocalLowestMidi.store (0.0f, std::memory_order_relaxed);
+        vocalHighestMidi.store (0.0f, std::memory_order_relaxed);
+        vocalAverageMidi.store (0.0f, std::memory_order_relaxed);
+        vocalPitchAccuracy.store (0.0f, std::memory_order_relaxed);
+        vocalVibrato.store (0.0f, std::memory_order_relaxed);
+        vocalSustainedPercent.store (0.0f, std::memory_order_relaxed);
+        vocalNoteChangeSpeed.store (0.0f, std::memory_order_relaxed);
+        vocalMelodic.store (false, std::memory_order_relaxed);
+        vocalPitchFill = 0;
+        vocalMinMidi = 127.0f;
+        vocalMaxMidi = 0.0f;
+        vocalMidiSum = 0.0f;
+        vocalPitchCount = 0;
+        vocalSustainedBlocks = 0;
+        vocalTotalBlocks = 0;
+        vocalNoteChanges = 0;
+        vocalPreviousMidi = 0.0f;
     }
 
     const auto* left = buffer.getReadPointer (0);
@@ -274,6 +326,93 @@ void KeyBridgeAudioProcessor::analyzeFrame()
     }
     keyConfidence.store (confidence, std::memory_order_relaxed);
     for (auto& value : chroma) value *= 0.65f;
+}
+
+void KeyBridgeAudioProcessor::analyzeVocalBlock (const juce::AudioBuffer<float>& vocalBuffer)
+{
+    const auto channels = vocalBuffer.getNumChannels();
+    if (channels <= 0 || vocalBuffer.getNumSamples() <= 0)
+        return;
+
+    float blockPeak = 0.0f;
+    for (int i = 0; i < vocalBuffer.getNumSamples(); ++i)
+    {
+        float sample = 0.0f;
+        for (int ch = 0; ch < channels; ++ch)
+            sample += vocalBuffer.getSample (ch, i);
+        sample /= static_cast<float> (channels);
+        blockPeak = juce::jmax (blockPeak, std::abs (sample));
+        vocalPitchBuffer[static_cast<size_t> (vocalPitchFill++)] = sample;
+
+        if (vocalPitchFill == static_cast<int> (vocalPitchBuffer.size()))
+        {
+            float rms = 0.0f;
+            for (const auto sampleValue : vocalPitchBuffer)
+                rms += sampleValue * sampleValue;
+            rms = std::sqrt (rms / static_cast<float> (vocalPitchBuffer.size()));
+
+            float bestCorrelation = 0.0f;
+            int bestLag = 0;
+            if (rms > 0.003f)
+            {
+                const auto minLag = juce::jmax (1, static_cast<int> (sampleRate / 1000.0));
+                const auto maxLag = juce::jmin (static_cast<int> (vocalPitchBuffer.size()) / 2, static_cast<int> (sampleRate / 70.0));
+                for (int lag = minLag; lag <= maxLag; ++lag)
+                {
+                    float sum = 0.0f, a = 0.0f, b = 0.0f;
+                    for (int n = 0; n < static_cast<int> (vocalPitchBuffer.size()) - lag; ++n)
+                    {
+                        const auto x = vocalPitchBuffer[static_cast<size_t> (n)];
+                        const auto y = vocalPitchBuffer[static_cast<size_t> (n + lag)];
+                        sum += x * y;
+                        a += x * x;
+                        b += y * y;
+                    }
+                    const auto correlation = sum / std::sqrt (juce::jmax (1.0e-12f, a * b));
+                    if (correlation > bestCorrelation)
+                    {
+                        bestCorrelation = correlation;
+                        bestLag = lag;
+                    }
+                }
+            }
+
+            if (bestLag > 0 && bestCorrelation > 0.35f)
+            {
+                const auto frequency = static_cast<float> (sampleRate) / static_cast<float> (bestLag);
+                const auto midi = 69.0f + 12.0f * std::log2 (frequency / 440.0f);
+                if (midi >= 40.0f && midi <= 84.0f)
+                {
+                    if (vocalPitchCount == 0)
+                        vocalMinMidi = vocalMaxMidi = midi;
+                    else
+                    {
+                        vocalMinMidi = juce::jmin (vocalMinMidi, midi);
+                        vocalMaxMidi = juce::jmax (vocalMaxMidi, midi);
+                        if (std::abs (midi - vocalPreviousMidi) > 2.0f)
+                            ++vocalNoteChanges;
+                    }
+                    vocalMidiSum += midi;
+                    ++vocalPitchCount;
+                    if (vocalPreviousMidi > 0.0f && std::abs (midi - vocalPreviousMidi) < 1.2f)
+                        ++vocalSustainedBlocks;
+                    vocalPreviousMidi = midi;
+                    vocalAverageMidi.store (vocalMidiSum / static_cast<float> (vocalPitchCount), std::memory_order_relaxed);
+                    vocalLowestMidi.store (vocalMinMidi, std::memory_order_relaxed);
+                    vocalHighestMidi.store (vocalMaxMidi, std::memory_order_relaxed);
+                    vocalPitchAccuracy.store (bestCorrelation, std::memory_order_relaxed);
+                    vocalConfidence.store (bestCorrelation, std::memory_order_relaxed);
+                    vocalMelodic.store (vocalPitchCount >= 4 && (static_cast<float> (vocalSustainedBlocks) / static_cast<float> (vocalPitchCount)) > 0.25f, std::memory_order_relaxed);
+                }
+            }
+            ++vocalTotalBlocks;
+            vocalSustainedPercent.store (vocalPitchCount > 0 ? static_cast<float> (vocalSustainedBlocks) / static_cast<float> (vocalPitchCount) : 0.0f, std::memory_order_relaxed);
+            const auto duration = static_cast<float> (vocalTotalBlocks) * static_cast<float> (vocalPitchBuffer.size()) / static_cast<float> (sampleRate);
+            vocalNoteChangeSpeed.store (duration > 0.0f ? static_cast<float> (vocalNoteChanges) / duration : 0.0f, std::memory_order_relaxed);
+            vocalPitchFill = 0;
+        }
+    }
+    vocalInputLevel.store (0.85f * vocalInputLevel.load (std::memory_order_relaxed) + 0.15f * blockPeak, std::memory_order_relaxed);
 }
 
 void KeyBridgeAudioProcessor::startFreshAnalysis() noexcept
