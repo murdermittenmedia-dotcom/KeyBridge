@@ -6,7 +6,8 @@
 #include <array>
 
 class KeyBridgeAudioProcessorEditor final : public juce::AudioProcessorEditor,
-                                             private juce::Timer
+                                             private juce::Timer,
+                                             private juce::ChangeListener
 {
 public:
     explicit KeyBridgeAudioProcessorEditor (KeyBridgeAudioProcessor&);
@@ -18,6 +19,7 @@ public:
 
 private:
     void timerCallback() override;
+    void changeListenerCallback (juce::ChangeBroadcaster*) override;
     void setMode (int mode);
     void refreshView();
     void refreshAppearance();

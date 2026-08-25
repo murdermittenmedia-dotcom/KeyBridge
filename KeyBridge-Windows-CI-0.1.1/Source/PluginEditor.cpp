@@ -121,7 +121,7 @@ KeyBridgeAudioProcessorEditor::KeyBridgeAudioProcessorEditor (KeyBridgeAudioProc
     opacitySlider.onValueChange = [this] { applyColourSelector(); };
     glowSlider.onValueChange = [this] { applyColourSelector(); };
     compactLayoutToggle.onClick = [this] { applyColourSelector(); resized(); };
-    colourSelector.onChange = [this] { applyColourSelector(); };
+    colourSelector.addChangeListener (this);
     for (auto* component : { static_cast<juce::Component*> (&themeBox), static_cast<juce::Component*> (&colourTargetBox), static_cast<juce::Component*> (&opacitySlider), static_cast<juce::Component*> (&glowSlider), static_cast<juce::Component*> (&compactLayoutToggle), static_cast<juce::Component*> (&colourSelector) })
         addAndMakeVisible (*component);
     addLabel (appearanceTitle, 16.0f, juce::Justification::centredLeft, juce::Colours::white);
@@ -426,6 +426,12 @@ void KeyBridgeAudioProcessorEditor::resized()
     resetThemeButton.setBounds (overlayX + 168, 508, 142, 28);
 }
 
+void KeyBridgeAudioProcessorEditor::changeListenerCallback (juce::ChangeBroadcaster* source)
+{
+    if (source == &colourSelector)
+        applyColourSelector();
+}
+
 void KeyBridgeAudioProcessorEditor::timerCallback()
 {
     leftMeter = 0.84f * leftMeter + 0.16f * processor.getInputLevel();
@@ -447,7 +453,7 @@ void KeyBridgeAudioProcessorEditor::refreshView()
     inputStatus.setColour (juce::Label::textColourId, statusColour (inputStatus.getText()));
     const auto status = live ? (processor.getCaptureProgress() < 1.0f ? "LISTENING" : "PROCESSING")
                              : (mode == 2 ? "REVIEW READY" : signal ? "READY" : "NO SIGNAL");
-    analysisStatus.setText ("STATUS: " + status, juce::dontSendNotification);
+    analysisStatus.setText (juce::String ("STATUS: ") + status, juce::dontSendNotification);
     analysisStatus.setColour (juce::Label::textColourId, statusColour (status));
     projectBpmLabel.setText ("Project BPM: " + (processor.getHostBpm() > 0.0 ? juce::String (processor.getHostBpm(), 2) : "--"), juce::dontSendNotification);
 
