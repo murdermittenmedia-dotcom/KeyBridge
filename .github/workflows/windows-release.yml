@@ -53,6 +53,7 @@ jobs:
         run: |
           $fixtures = "build-msvc/synthetic-fixtures"
           $reports = "build-msvc/offline-reports"
+          New-Item -ItemType Directory -Force -Path $reports | Out-Null
           python "KeyBridge-Windows-CI-0.1.1/Tests/generate_synthetic_fixtures.py" --output $fixtures
           $analyzer = "build-msvc/TuneriteOfflineAnalyzer_artefacts/Release/TuneriteOfflineAnalyzer.exe"
           if (!(Test-Path $analyzer)) { throw "Offline analyzer executable was not produced" }
