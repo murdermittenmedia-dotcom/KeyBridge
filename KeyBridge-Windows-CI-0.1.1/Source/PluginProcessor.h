@@ -50,7 +50,8 @@ private:
     void estimateAudioBpm();
 
     double sampleRate = 44100.0;
-    static constexpr int fftOrder = 11;
+    static constexpr int fftOrder = 13;
+    static constexpr int fftSize = 1 << fftOrder;
     std::unique_ptr<juce::dsp::FFT> fft;
     juce::HeapBlock<float, true> fftData;
     std::array<float, 12> chroma{};
@@ -59,7 +60,7 @@ private:
     float previousEnergy = 0.0f;
     int samplesSinceOnset = 0;
     float adaptiveEnergy = 0.0001f;
-    std::array<float, 128> energyHistory{};
+    std::array<float, 256> energyHistory{};
     int energyHistoryWrite = 0;
     int energyHistoryCount = 0;
     int captureSamples = 0;

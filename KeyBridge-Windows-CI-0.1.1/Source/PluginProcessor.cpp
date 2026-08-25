@@ -16,14 +16,14 @@ KeyBridgeAudioProcessor::KeyBridgeAudioProcessor()
         .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       fft (std::make_unique<juce::dsp::FFT> (fftOrder))
 {
-    fftData.allocate (2048, true);
-    std::fill (fftData.get(), fftData.get() + 2048, 0.0f);
+    fftData.allocate (fftSize * 2, true);
+    std::fill (fftData.get(), fftData.get() + fftSize * 2, 0.0f);
 }
 
 void KeyBridgeAudioProcessor::prepareToPlay (double newSampleRate, int)
 {
     sampleRate = juce::jmax (newSampleRate, 8000.0);
-    fftData.allocate (2048, true);
+    fftData.allocate (fftSize * 2, true);
     fftFill = 0;
     analysisFrameCount = 0;
     previousEnergy = 0.0f;
@@ -52,7 +52,7 @@ void KeyBridgeAudioProcessor::prepareToPlay (double newSampleRate, int)
     bpmConfidence.store (0.0f, std::memory_order_relaxed);
     analysisFrames.store (0, std::memory_order_relaxed);
     inputLevel.store (0.0f, std::memory_order_relaxed);
-    std::fill (fftData.get(), fftData.get() + 2048, 0.0f);
+    std::fill (fftData.get(), fftData.get() + fftSize * 2, 0.0f);
 }
 
 void KeyBridgeAudioProcessor::releaseResources()
@@ -117,7 +117,7 @@ void KeyBridgeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
         fftData[fftFill++] = sample;
         ++samplesSinceOnset;
 
-        if (fftFill == 1024)
+        if (fftFill == fftSize)
         {
             float energy = 0.0f;
             for (int n = 0; n < fftFill; ++n)
@@ -128,10 +128,10 @@ void KeyBridgeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
             energyHistory[static_cast<size_t> (energyHistoryWrite)] = energy;
             energyHistoryWrite = (energyHistoryWrite + 1) % static_cast<int> (energyHistory.size());
             energyHistoryCount = juce::jmin (energyHistoryCount + 1, static_cast<int> (energyHistory.size()));
-            if (energyHistoryCount >= 48)
+            if (energyHistoryCount >= 32)
                 estimateAudioBpm();
 
-            std::fill (fftData.get() + fftFill, fftData.get() + 2048, 0.0f);
+            std::fill (fftData.get() + fftFill, fftData.get() + fftSize * 2, 0.0f);
             analyzeFrame();
             fftFill = 0;
         }
@@ -154,24 +154,24 @@ void KeyBridgeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
 
 void KeyBridgeAudioProcessor::estimateAudioBpm()
 {
-    const auto frameSeconds = 1024.0 / sampleRate;
+    const auto frameSeconds = static_cast<double> (fftSize) / sampleRate;
     float bestCorrelation = 0.0f;
     int bestLag = 0;
     const auto newest = energyHistoryWrite - 1;
-    for (int lag = 14; lag <= 44; ++lag)
+    for (int lag = 2; lag <= 24; ++lag)
     {
         const auto usable = juce::jmin (energyHistoryCount - lag, 96);
         if (usable < 24)
             continue;
         float mean = 0.0f;
         for (int i = 0; i < usable; ++i)
-            mean += energyHistory[static_cast<size_t> ((newest - i + 128) % 128)];
+            mean += energyHistory[static_cast<size_t> ((newest - i + static_cast<int> (energyHistory.size())) % static_cast<int> (energyHistory.size()))];
         mean /= static_cast<float> (usable);
         float numerator = 0.0f, denomA = 0.0f, denomB = 0.0f;
         for (int i = 0; i < usable; ++i)
         {
-            const auto a = energyHistory[static_cast<size_t> ((newest - i + 128) % 128)] - mean;
-            const auto b = energyHistory[static_cast<size_t> ((newest - i - lag + 256) % 128)] - mean;
+            const auto a = energyHistory[static_cast<size_t> ((newest - i + static_cast<int> (energyHistory.size())) % static_cast<int> (energyHistory.size()))] - mean;
+            const auto b = energyHistory[static_cast<size_t> ((newest - i - lag + static_cast<int> (energyHistory.size()) * 2) % static_cast<int> (energyHistory.size()))] - mean;
             numerator += a * b;
             denomA += a * a;
             denomB += b * b;
@@ -183,9 +183,11 @@ void KeyBridgeAudioProcessor::estimateAudioBpm()
             bestLag = lag;
         }
     }
-    if (bestLag > 0 && bestCorrelation > 0.18f)
+    if (bestLag > 0 && bestCorrelation > 0.22f)
     {
-        const auto bpm = 60.0 / (bestLag * frameSeconds);
+        auto bpm = 60.0 / (bestLag * frameSeconds);
+        while (bpm < 60.0) bpm *= 2.0;
+        while (bpm > 180.0) bpm *= 0.5;
         const auto old = detectedBpm.load (std::memory_order_relaxed);
         detectedBpm.store (old <= 0.0 ? bpm : 0.75 * old + 0.25 * bpm, std::memory_order_relaxed);
         bpmConfidence.store (juce::jlimit (0.0f, 1.0f, bestCorrelation), std::memory_order_relaxed);
@@ -195,10 +197,10 @@ void KeyBridgeAudioProcessor::estimateAudioBpm()
 void KeyBridgeAudioProcessor::analyzeFrame()
 {
     fft->performFrequencyOnlyForwardTransform (fftData.get());
-    for (int bin = 2; bin < 1024; ++bin)
+    for (int bin = 2; bin < fftSize / 2; ++bin)
     {
         const auto magnitude = fftData[bin];
-        const auto frequency = static_cast<float> (bin) * static_cast<float> (sampleRate) / 2048.0f;
+        const auto frequency = static_cast<float> (bin) * static_cast<float> (sampleRate) / static_cast<float> (fftSize);
         if (frequency < 55.0f || frequency > 2000.0f || magnitude < 0.001f)
             continue;
         const auto midi = 69.0f + 12.0f * std::log2 (frequency / 440.0f);
@@ -220,6 +222,20 @@ void KeyBridgeAudioProcessor::analyzeFrame()
     float best = -1.0f, second = -1.0f;
     int bestKey = detectedKey.load (std::memory_order_relaxed);
     int bestMode = detectedMode.load (std::memory_order_relaxed);
+    const auto consider = [&] (float score, int root, int mode)
+    {
+        if (score > best)
+        {
+            second = best;
+            best = score;
+            bestKey = root;
+            bestMode = mode;
+        }
+        else if (score > second)
+        {
+            second = score;
+        }
+    };
     for (int root = 0; root < 12; ++root)
     {
         float major = 0.0f, minor = 0.0f;
@@ -228,11 +244,12 @@ void KeyBridgeAudioProcessor::analyzeFrame()
             major += chroma[static_cast<size_t> ((root + i) % 12)] * majorProfile[static_cast<size_t> (i)];
             minor += chroma[static_cast<size_t> ((root + i) % 12)] * minorProfile[static_cast<size_t> (i)];
         }
-        if (major > best) { second = best; best = major; bestKey = root; bestMode = 0; }
-        if (minor > best) { second = best; best = minor; bestKey = root; bestMode = 1; }
+        consider (major, root, 0);
+        consider (minor, root, 1);
     }
 
-    const auto confidence = juce::jlimit (0.0f, 1.0f, (best - juce::jmax (0.0f, second)) * 2.0f);
+    const auto confidence = juce::jlimit (0.0f, 1.0f,
+        ((best - juce::jmax (0.0f, second)) / juce::jmax (0.000001f, std::abs (best))) * 8.0f);
     if (bestKey == candidateKey && bestMode == candidateMode)
         ++candidateWins;
     else
@@ -245,8 +262,8 @@ void KeyBridgeAudioProcessor::analyzeFrame()
     const auto currentKey = detectedKey.load (std::memory_order_relaxed);
     const auto currentMode = detectedMode.load (std::memory_order_relaxed);
     const auto isCurrentCandidate = bestKey == currentKey && bestMode == currentMode;
-    if ((! hasStableKey && candidateWins >= 2 && confidence >= 0.08f)
-        || (hasStableKey && candidateWins >= 3 && confidence >= 0.12f && ! isCurrentCandidate))
+    if ((! hasStableKey && candidateWins >= 2 && confidence >= 0.18f)
+        || (hasStableKey && candidateWins >= 3 && confidence >= 0.24f && ! isCurrentCandidate))
     {
         stableKey = bestKey;
         stableMode = bestMode;
