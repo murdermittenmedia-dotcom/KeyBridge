@@ -28,6 +28,7 @@ juce_generate_juce_header(Tunerite)
 target_sources(Tunerite PRIVATE
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
+    Source/AnalysisCore.cpp
 )
 
 target_compile_definitions(Tunerite PRIVATE
