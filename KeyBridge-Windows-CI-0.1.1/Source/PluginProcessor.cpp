@@ -29,7 +29,9 @@ bool KeyBridgeAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts
 {
     const auto mainIn = layouts.getChannelSet (true, 0);
     const auto mainOut = layouts.getChannelSet (false, 0);
-    return mainIn == mainOut && (mainIn == juce::AudioChannelSet::mono() || mainIn == juce::AudioChannelSet::stereo());
+    const auto inputIsUsable = mainIn.isDisabled() || mainIn == mainOut;
+    const auto outputIsUsable = mainOut == juce::AudioChannelSet::mono() || mainOut == juce::AudioChannelSet::stereo();
+    return inputIsUsable && outputIsUsable;
 }
 
 void KeyBridgeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
@@ -39,6 +41,9 @@ void KeyBridgeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
         if (auto position = playHead->getPosition())
             if (position->getBpm().hasValue())
                 hostBpm.store (*position->getBpm(), std::memory_order_relaxed);
+
+    if (buffer.getNumChannels() == 0 || sampleRate <= 0.0)
+        return;
 
     const auto frequency = toneFrequency.load (std::memory_order_relaxed);
     auto remaining = toneSamplesRemaining.load (std::memory_order_relaxed);
@@ -75,6 +80,9 @@ void KeyBridgeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
 
 void KeyBridgeAudioProcessor::analyzeFrame()
 {
+    if (fft == nullptr || sampleRate <= 0.0)
+        return;
+
     fft->performFrequencyOnlyForwardTransform (fftData.data());
     for (int bin = 2; bin < 1024; ++bin)
     {
@@ -133,7 +141,14 @@ void KeyBridgeAudioProcessor::setStateInformation (const void* data, int sizeInB
 
 juce::AudioProcessorEditor* KeyBridgeAudioProcessor::createEditor()
 {
-    return new KeyBridgeAudioProcessorEditor (*this);
+    try
+    {
+        return new KeyBridgeAudioProcessorEditor (*this);
+    }
+    catch (...)
+    {
+        return nullptr;
+    }
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
