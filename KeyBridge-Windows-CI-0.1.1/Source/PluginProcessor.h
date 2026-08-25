@@ -36,6 +36,8 @@ public:
     int getDetectedMode() const noexcept { return detectedMode.load (std::memory_order_relaxed); }
     float getKeyConfidence() const noexcept { return keyConfidence.load (std::memory_order_relaxed); }
     float getBpmConfidence() const noexcept { return bpmConfidence.load (std::memory_order_relaxed); }
+    float getInputLevel() const noexcept { return inputLevel.load (std::memory_order_relaxed); }
+    int getAnalysisFrames() const noexcept { return analysisFrames.load (std::memory_order_relaxed); }
     void requestReferenceTone (int midiNote) noexcept;
     void setAnalysisEnabled (bool enabled) noexcept { analysisEnabled.store (enabled, std::memory_order_relaxed); }
 
@@ -60,5 +62,7 @@ private:
     std::atomic<int> detectedMode { 0 };
     std::atomic<float> keyConfidence { 0.0f };
     std::atomic<float> bpmConfidence { 0.0f };
+    std::atomic<float> inputLevel { 0.0f };
+    std::atomic<int> analysisFrames { 0 };
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (KeyBridgeAudioProcessor)
 };

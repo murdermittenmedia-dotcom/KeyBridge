@@ -30,6 +30,8 @@ void KeyBridgeAudioProcessor::prepareToPlay (double newSampleRate, int)
     samplesSinceOnset = 0;
     adaptiveEnergy = 0.0001f;
     chroma.fill (0.0f);
+    analysisFrames.store (0, std::memory_order_relaxed);
+    inputLevel.store (0.0f, std::memory_order_relaxed);
     std::fill (fftData.get(), fftData.get() + 2048, 0.0f);
 }
 
@@ -64,10 +66,12 @@ void KeyBridgeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
 
     const auto* left = buffer.getReadPointer (0);
     const auto* right = buffer.getNumChannels() > 1 ? buffer.getReadPointer (1) : left;
+    float blockPeak = 0.0f;
 
     for (int i = 0; i < buffer.getNumSamples(); ++i)
     {
         const auto sample = 0.5f * (left[i] + right[i]);
+        blockPeak = juce::jmax (blockPeak, std::abs (sample));
         fftData[fftFill++] = sample;
         ++samplesSinceOnset;
 
@@ -101,6 +105,8 @@ void KeyBridgeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
         }
     }
 
+    inputLevel.store (0.85f * inputLevel.load (std::memory_order_relaxed) + 0.15f * blockPeak, std::memory_order_relaxed);
+    analysisFrames.fetch_add (1, std::memory_order_relaxed);
 }
 
 void KeyBridgeAudioProcessor::analyzeFrame()

@@ -163,7 +163,9 @@ void KeyBridgeAudioProcessorEditor::timerCallback()
     bpmLabel.setText ("Project BPM: " + (host > 0.0 ? juce::String (host, 2) : "--")
                       + "   |   Detected Audio BPM: " + (detected > 0.0 ? juce::String (detected, 2) : "--"), juce::dontSendNotification);
     confidenceLabel.setText ("Key confidence: " + juce::String (keyConfidence * 100.0f, 0) + "%   |   BPM confidence: "
-                             + juce::String (bpmConfidence * 100.0f, 0) + "%", juce::dontSendNotification);
+                             + juce::String (bpmConfidence * 100.0f, 0) + "%   |   Input: "
+                             + (processor.getInputLevel() > 0.0001f ? "ACTIVE" : "SILENT")
+                             + "   |   Frames: " + juce::String (processor.getAnalysisFrames()), juce::dontSendNotification);
 
     juce::String scaleText = "Scale notes: ";
     for (int i = 0; i < 7; ++i)
