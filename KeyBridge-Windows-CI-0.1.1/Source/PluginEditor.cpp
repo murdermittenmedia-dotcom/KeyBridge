@@ -13,7 +13,7 @@ KeyBridgeAudioProcessorEditor::KeyBridgeAudioProcessorEditor (KeyBridgeAudioProc
 {
     setOpaque (true);
     setResizable (false, false);
-    setSize (760, 560);
+    setSize (820, 640);
 
     auto setupLabel = [this] (juce::Label& label, const juce::String& text, float size, juce::Justification justification)
     {
@@ -24,13 +24,15 @@ KeyBridgeAudioProcessorEditor::KeyBridgeAudioProcessorEditor (KeyBridgeAudioProc
         addAndMakeVisible (label);
     };
 
-    setupLabel (title, "TUNERITE  /  BY MURDERMITTENMEDIA", 22.0f, juce::Justification::centredLeft);
+    setupLabel (title, "TUNERITE", 24.0f, juce::Justification::centredLeft);
+    setupLabel (sectionLabel, "BEAT ANALYSIS  /  LISTEN TO THE AUDIO ON THIS MIXER TRACK", 12.0f, juce::Justification::centredLeft);
     setupLabel (keyLabel, "Key: Listening", 26.0f, juce::Justification::centred);
     setupLabel (bpmLabel, "Project BPM: --   |   Detected Audio BPM: --", 15.0f, juce::Justification::centred);
     setupLabel (confidenceLabel, "Key confidence: --   |   BPM confidence: --", 13.0f, juce::Justification::centred);
     setupLabel (notesLabel, "Scale notes: listening...", 15.0f, juce::Justification::centredLeft);
     setupLabel (recommendationLabel, "Vocal Fit guidance: choose a profile and range", 16.0f, juce::Justification::centredLeft);
-    setupLabel (guidanceLabel, "Beat-only guidance: Tunerite does not analyze or modify vocals. Press ANALYZE CURRENT AUDIO for an 8-second capture.", 12.0f, juce::Justification::centredLeft);
+    setupLabel (guidanceLabel, "Vocal Fit is guidance from the detected beat key; Tunerite does not analyze or modify vocals.", 12.0f, juce::Justification::centredLeft);
+    setupLabel (bpmActionLabel, "Host BPM is read-only in a standard VST3. This button copies the detected BPM for manual DAW entry.", 11.0f, juce::Justification::centredLeft);
 
     const auto setupCaption = [this] (juce::Label& label, const juce::String& text)
     {
@@ -80,10 +82,13 @@ KeyBridgeAudioProcessorEditor::KeyBridgeAudioProcessorEditor (KeyBridgeAudioProc
     setupRange (highNoteSlider, 72.0);
 
     analyzeButton.setButtonText ("ANALYZE CURRENT AUDIO");
+    setBpmButton.setButtonText ("COPY DETECTED BPM");
     addAndMakeVisible (analyzeButton);
     addAndMakeVisible (holdButton);
     addAndMakeVisible (lockButton);
-    analyzeButton.onClick = [this] { processor.startFreshAnalysis(); };
+    addAndMakeVisible (setBpmButton);
+    analyzeButton.onClick = [this] { processor.startFreshAnalysis(); bpmActionLabel.setText ("Capturing a fresh 8-second beat window...", juce::dontSendNotification); };
+    setBpmButton.onClick = [this] { copyDetectedBpm(); };
     holdButton.onClick = [this] { processor.setAnalysisEnabled (false); };
     lockButton.onClick = [this] { processor.setAnalysisEnabled (false); };
 
@@ -119,47 +124,52 @@ void KeyBridgeAudioProcessorEditor::paint (juce::Graphics& g)
     g.setColour (juce::Colour (0xffa51f3d));
     g.fillRect (0, 0, getWidth(), 5);
     g.setColour (juce::Colour (0xff20242d));
-    g.fillRoundedRectangle (16.0f, 52.0f, getWidth() - 32.0f, 125.0f, 10.0f);
+    g.fillRoundedRectangle (16.0f, 54.0f, getWidth() - 32.0f, 150.0f, 10.0f);
     g.setColour (juce::Colour (0xff1b1f27));
-    g.fillRoundedRectangle (16.0f, 188.0f, getWidth() - 32.0f, 165.0f, 10.0f);
+    g.fillRoundedRectangle (16.0f, 216.0f, getWidth() - 32.0f, 190.0f, 10.0f);
+    g.setColour (juce::Colour (0xff161a21));
+    g.fillRoundedRectangle (16.0f, 418.0f, getWidth() - 32.0f, 100.0f, 10.0f);
     g.setColour (juce::Colours::grey);
     g.setFont (juce::Font (11.0f));
-    g.drawText ("DISPLAY OPTIONS", 28, 425, 180, 18, juce::Justification::left);
-    g.drawText ("REFERENCE NOTE BUTTONS", 28, 458, 260, 18, juce::Justification::left);
-    g.drawText ("TRANSPARENT ANALYSIS  /  NO AUTO-ADJUSTMENTS", 420, 425, 310, 18, juce::Justification::right);
+    g.drawText ("DISPLAY OPTIONS", 28, 535, 180, 18, juce::Justification::left);
+    g.drawText ("REFERENCE NOTE BUTTONS", 28, 570, 260, 18, juce::Justification::left);
+    g.drawText ("TRANSPARENT ANALYSIS  /  NO AUDIO MODIFICATION", 420, 535, 360, 18, juce::Justification::right);
 }
 
 void KeyBridgeAudioProcessorEditor::resized()
 {
-    title.setBounds (20, 16, 500, 28);
-    keyLabel.setBounds (30, 65, 300, 42);
-    bpmLabel.setBounds (330, 68, 400, 26);
-    confidenceLabel.setBounds (330, 103, 400, 22);
-    notesLabel.setBounds (30, 125, 700, 25);
-    recommendationLabel.setBounds (30, 198, 700, 30);
-    guidanceLabel.setBounds (30, 230, 700, 22);
-    displayLabel.setBounds (30, 365, 80, 18);
-    themeLabel.setBounds (200, 365, 80, 18);
-    displayModeBox.setBounds (30, 386, 130, 26);
-    themeBox.setBounds (200, 386, 130, 26);
+    title.setBounds (24, 14, 300, 30);
+    sectionLabel.setBounds (30, 42, 760, 18);
+    keyLabel.setBounds (30, 70, 330, 48);
+    recommendationLabel.setBounds (30, 230, 760, 32);
+    guidanceLabel.setBounds (30, 266, 760, 24);
+    bpmActionLabel.setBounds (30, 202, 760, 20);
+    bpmLabel.setBounds (365, 72, 410, 28);
+    confidenceLabel.setBounds (365, 108, 410, 24);
+    notesLabel.setBounds (30, 132, 740, 28);
+    displayLabel.setBounds (30, 438, 80, 18);
+    themeLabel.setBounds (200, 438, 80, 18);
+    displayModeBox.setBounds (30, 459, 130, 28);
+    themeBox.setBounds (200, 459, 130, 28);
 
-    profileLabel.setBounds (30, 263, 125, 18);
-    rangeLabel.setBounds (170, 263, 180, 18);
-    genreLabel.setBounds (365, 263, 100, 18);
-    deliveryLabel.setBounds (475, 263, 100, 18);
-    vibeLabel.setBounds (585, 263, 140, 18);
-    profileBox.setBounds (30, 284, 125, 26);
-    lowNoteSlider.setBounds (170, 284, 85, 26);
-    highNoteSlider.setBounds (260, 284, 90, 26);
-    genreBox.setBounds (365, 284, 100, 26);
-    deliveryBox.setBounds (475, 284, 100, 26);
-    vibeBox.setBounds (585, 284, 140, 26);
+    profileLabel.setBounds (30, 310, 125, 18);
+    rangeLabel.setBounds (170, 310, 180, 18);
+    genreLabel.setBounds (365, 310, 100, 18);
+    deliveryLabel.setBounds (475, 310, 100, 18);
+    vibeLabel.setBounds (585, 310, 180, 18);
+    profileBox.setBounds (30, 331, 125, 28);
+    lowNoteSlider.setBounds (170, 331, 85, 28);
+    highNoteSlider.setBounds (260, 331, 90, 28);
+    genreBox.setBounds (365, 331, 100, 28);
+    deliveryBox.setBounds (475, 331, 100, 28);
+    vibeBox.setBounds (585, 331, 180, 28);
 
-    analyzeButton.setBounds (30, 322, 170, 28);
-    holdButton.setBounds (207, 322, 80, 28);
-    lockButton.setBounds (294, 322, 80, 28);
+    analyzeButton.setBounds (30, 370, 190, 32);
+    holdButton.setBounds (230, 370, 80, 32);
+    lockButton.setBounds (320, 370, 80, 32);
+    setBpmButton.setBounds (420, 370, 180, 32);
     for (int i = 0; i < 12; ++i)
-        noteButtons[static_cast<size_t> (i)].setBounds (30 + i * 58, 482, 52, 38);
+        noteButtons[static_cast<size_t> (i)].setBounds (30 + i * 63, 589, 57, 38);
 }
 
 void KeyBridgeAudioProcessorEditor::timerCallback()
@@ -180,8 +190,12 @@ void KeyBridgeAudioProcessorEditor::timerCallback()
     if (processor.isAnalysisActive() && progress > 0.0f && progress < 1.0f)
         bpmLabel.setText ("Analyzing current audio... " + juce::String (progress * 100.0f, 0) + "%", juce::dontSendNotification);
     else
+    {
         bpmLabel.setText ("Project BPM: " + (host > 0.0 ? juce::String (host, 2) : "--")
                           + "   |   Detected Audio BPM: " + (detected > 0.0 ? juce::String (detected, 2) : "--"), juce::dontSendNotification);
+        if (detected > 0.0 && progress >= 1.0f)
+            bpmActionLabel.setText ("Analysis complete. Use COPY DETECTED BPM to place this value on the DAW tempo field.", juce::dontSendNotification);
+    }
     confidenceLabel.setText ("Key confidence: " + juce::String (keyConfidence * 100.0f, 0) + "%   |   BPM confidence: "
                              + juce::String (bpmConfidence * 100.0f, 0) + "%   |   Input: "
                              + (processor.getInputLevel() > 0.0001f ? "ACTIVE" : "SILENT")
@@ -229,4 +243,17 @@ void KeyBridgeAudioProcessorEditor::refreshRecommendation()
 void KeyBridgeAudioProcessorEditor::playReferenceTone (int midiNote)
 {
     processor.requestReferenceTone (midiNote);
+}
+
+void KeyBridgeAudioProcessorEditor::copyDetectedBpm()
+{
+    const auto detected = processor.getDetectedBpm();
+    if (detected <= 0.0)
+    {
+        bpmActionLabel.setText ("No detected BPM yet. Analyze the current beat first.", juce::dontSendNotification);
+        return;
+    }
+
+    juce::SystemClipboard::copyTextToClipboard (juce::String (detected, 2));
+    bpmActionLabel.setText ("Detected BPM " + juce::String (detected, 2) + " copied. Paste it into FL Studio's tempo field.", juce::dontSendNotification);
 }
