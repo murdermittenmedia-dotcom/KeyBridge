@@ -33,8 +33,8 @@ public:
     void setCurrentProgram (int) override {}
     const juce::String getProgramName (int) override { return {}; }
     void changeProgramName (int, const juce::String&) override {}
-    void getStateInformation (juce::MemoryBlock&) override {}
-    void setStateInformation (const void*, int) override {}
+    void getStateInformation (juce::MemoryBlock&) override;
+    void setStateInformation (const void*, int) override;
 
     double getHostBpm() const noexcept { return hostBpm.load (std::memory_order_relaxed); }
     double getDetectedBpm() const noexcept { return detectedBpm.load (std::memory_order_relaxed); }
@@ -56,6 +56,7 @@ public:
     void setAnalysisMode (int mode) noexcept { analysisMode.store (juce::jlimit (0, 2, mode), std::memory_order_relaxed); }
     int getAnalysisMode() const noexcept { return analysisMode.load (std::memory_order_relaxed); }
     void startFreshAnalysis() noexcept;
+    void stopAnalysis() noexcept;
     void setAnalysisEnabled (bool enabled) noexcept { analysisEnabled.store (enabled, std::memory_order_relaxed); }
 
     void saveBeatResult() noexcept;
@@ -66,13 +67,18 @@ public:
 
     bool hasSavedBeatResult() const noexcept { return savedBeatResult.load (std::memory_order_relaxed); }
     bool hasSavedVocalResult() const noexcept { return savedVocalResult.load (std::memory_order_relaxed); }
+    bool hasValidBeatResult() const noexcept { return hasSavedBeatResult(); }
+    bool hasValidVocalResult() const noexcept { return hasSavedVocalResult(); }
     int getSavedBeatKey() const noexcept { return savedBeatKey.load (std::memory_order_relaxed); }
     int getSavedBeatMode() const noexcept { return savedBeatMode.load (std::memory_order_relaxed); }
     double getSavedBeatBpm() const noexcept { return savedBeatBpm.load (std::memory_order_relaxed); }
+    double getSavedBeatAlternativeBpm() const noexcept { return savedBeatAlternativeBpm.load (std::memory_order_relaxed); }
     float getSavedBeatKeyConfidence() const noexcept { return savedBeatKeyConfidence.load (std::memory_order_relaxed); }
     float getSavedBeatBpmConfidence() const noexcept { return savedBeatBpmConfidence.load (std::memory_order_relaxed); }
     float getSavedVocalLowestMidi() const noexcept { return savedVocalLowestMidi.load (std::memory_order_relaxed); }
     float getSavedVocalHighestMidi() const noexcept { return savedVocalHighestMidi.load (std::memory_order_relaxed); }
+    float getSavedVocalAverageMidi() const noexcept { return savedVocalAverageMidi.load (std::memory_order_relaxed); }
+    float getSavedVocalVoicedPercent() const noexcept { return savedVocalVoicedPercent.load (std::memory_order_relaxed); }
     float getSavedVocalConfidence() const noexcept { return savedVocalConfidence.load (std::memory_order_relaxed); }
     float getSavedVocalSustainedPercent() const noexcept { return savedVocalSustainedPercent.load (std::memory_order_relaxed); }
     float getSavedVocalNoteChangeSpeed() const noexcept { return savedVocalNoteChangeSpeed.load (std::memory_order_relaxed); }
@@ -89,6 +95,15 @@ public:
     float getVocalSustainedPercent() const noexcept { return vocalSustainedPercent.load (std::memory_order_relaxed); }
     float getVocalNoteChangeSpeed() const noexcept { return vocalNoteChangeSpeed.load (std::memory_order_relaxed); }
     bool isVocalMelodic() const noexcept { return vocalMelodic.load (std::memory_order_relaxed); }
+
+    std::uint32_t getAppearanceAccent() const noexcept { return appearanceAccent.load (std::memory_order_relaxed); }
+    std::uint32_t getAppearancePanel() const noexcept { return appearancePanel.load (std::memory_order_relaxed); }
+    std::uint32_t getAppearanceBackground() const noexcept { return appearanceBackground.load (std::memory_order_relaxed); }
+    float getAppearancePanelOpacity() const noexcept { return appearancePanelOpacity.load (std::memory_order_relaxed); }
+    float getAppearanceGlow() const noexcept { return appearanceGlow.load (std::memory_order_relaxed); }
+    bool isCompactAppearance() const noexcept { return appearanceCompact.load (std::memory_order_relaxed); }
+    void setAppearance (std::uint32_t accent, std::uint32_t panel, std::uint32_t background, float opacity, float glow, bool compact) noexcept;
+    void resetAppearance() noexcept;
 
 private:
     void workerLoop();
@@ -152,14 +167,24 @@ private:
     std::atomic<int> savedBeatKey { 0 };
     std::atomic<int> savedBeatMode { 0 };
     std::atomic<double> savedBeatBpm { 0.0 };
+    std::atomic<double> savedBeatAlternativeBpm { 0.0 };
     std::atomic<float> savedBeatKeyConfidence { 0.0f };
     std::atomic<float> savedBeatBpmConfidence { 0.0f };
     std::atomic<float> savedVocalLowestMidi { 0.0f };
     std::atomic<float> savedVocalHighestMidi { 0.0f };
+    std::atomic<float> savedVocalAverageMidi { 0.0f };
+    std::atomic<float> savedVocalVoicedPercent { 0.0f };
     std::atomic<float> savedVocalConfidence { 0.0f };
     std::atomic<float> savedVocalSustainedPercent { 0.0f };
     std::atomic<float> savedVocalNoteChangeSpeed { 0.0f };
     std::atomic<bool> savedVocalMelodic { false };
+
+    std::atomic<std::uint32_t> appearanceAccent { 0xff55c7e8 };
+    std::atomic<std::uint32_t> appearancePanel { 0xff17202c };
+    std::atomic<std::uint32_t> appearanceBackground { 0xff0b1017 };
+    std::atomic<float> appearancePanelOpacity { 0.94f };
+    std::atomic<float> appearanceGlow { 0.35f };
+    std::atomic<bool> appearanceCompact { false };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (KeyBridgeAudioProcessor)
 };

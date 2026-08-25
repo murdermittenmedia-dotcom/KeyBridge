@@ -240,6 +240,15 @@ void KeyBridgeAudioProcessor::startFreshAnalysis() noexcept
     }
 }
 
+void KeyBridgeAudioProcessor::stopAnalysis() noexcept
+{
+    analysisEnabled.store (false, std::memory_order_release);
+    analysisGeneration.fetch_add (1, std::memory_order_acq_rel);
+    captureActive.store (false, std::memory_order_release);
+    captureRequested.store (false, std::memory_order_release);
+    captureProgress.store (0.0f, std::memory_order_relaxed);
+}
+
 void KeyBridgeAudioProcessor::saveBeatResult() noexcept
 {
     if (hasStableDetectionFlag.load (std::memory_order_acquire))
@@ -247,6 +256,7 @@ void KeyBridgeAudioProcessor::saveBeatResult() noexcept
         savedBeatKey.store (detectedKey.load (std::memory_order_relaxed), std::memory_order_relaxed);
         savedBeatMode.store (detectedMode.load (std::memory_order_relaxed), std::memory_order_relaxed);
         savedBeatBpm.store (detectedBpm.load (std::memory_order_relaxed), std::memory_order_relaxed);
+        savedBeatAlternativeBpm.store (detectedAlternativeBpm.load (std::memory_order_relaxed), std::memory_order_relaxed);
         savedBeatKeyConfidence.store (keyConfidence.load (std::memory_order_relaxed), std::memory_order_relaxed);
         savedBeatBpmConfidence.store (bpmConfidence.load (std::memory_order_relaxed), std::memory_order_relaxed);
         savedBeatResult.store (true, std::memory_order_release);
@@ -255,10 +265,13 @@ void KeyBridgeAudioProcessor::saveBeatResult() noexcept
 
 void KeyBridgeAudioProcessor::saveVocalResult() noexcept
 {
-    if (vocalConfidence.load (std::memory_order_relaxed) >= 0.55f)
+    if (vocalConfidence.load (std::memory_order_relaxed) >= 0.55f
+        && vocalVoicedPercent.load (std::memory_order_relaxed) >= 0.20f)
     {
         savedVocalLowestMidi.store (vocalLowestMidi.load (std::memory_order_relaxed), std::memory_order_relaxed);
         savedVocalHighestMidi.store (vocalHighestMidi.load (std::memory_order_relaxed), std::memory_order_relaxed);
+        savedVocalAverageMidi.store (vocalAverageMidi.load (std::memory_order_relaxed), std::memory_order_relaxed);
+        savedVocalVoicedPercent.store (vocalVoicedPercent.load (std::memory_order_relaxed), std::memory_order_relaxed);
         savedVocalConfidence.store (vocalConfidence.load (std::memory_order_relaxed), std::memory_order_relaxed);
         savedVocalSustainedPercent.store (vocalSustainedPercent.load (std::memory_order_relaxed), std::memory_order_relaxed);
         savedVocalNoteChangeSpeed.store (vocalNoteChangeSpeed.load (std::memory_order_relaxed), std::memory_order_relaxed);
@@ -285,6 +298,50 @@ void KeyBridgeAudioProcessor::resetAllResults() noexcept
     captureActive.store (false, std::memory_order_release);
     captureRequested.store (false, std::memory_order_release);
     resetLiveResults();
+}
+
+void KeyBridgeAudioProcessor::setAppearance (std::uint32_t accent, std::uint32_t panel, std::uint32_t background, float opacity, float glow, bool compact) noexcept
+{
+    appearanceAccent.store (accent, std::memory_order_relaxed);
+    appearancePanel.store (panel, std::memory_order_relaxed);
+    appearanceBackground.store (background, std::memory_order_relaxed);
+    appearancePanelOpacity.store (juce::jlimit (0.72f, 1.0f, opacity), std::memory_order_relaxed);
+    appearanceGlow.store (juce::jlimit (0.0f, 1.0f, glow), std::memory_order_relaxed);
+    appearanceCompact.store (compact, std::memory_order_relaxed);
+}
+
+void KeyBridgeAudioProcessor::resetAppearance() noexcept
+{
+    setAppearance (0xff55c7e8, 0xff17202c, 0xff0b1017, 0.94f, 0.35f, false);
+}
+
+void KeyBridgeAudioProcessor::getStateInformation (juce::MemoryBlock& destinationData)
+{
+    juce::ValueTree state ("TuneRiteState");
+    state.setProperty ("accent", static_cast<int> (appearanceAccent.load (std::memory_order_relaxed)), nullptr);
+    state.setProperty ("panel", static_cast<int> (appearancePanel.load (std::memory_order_relaxed)), nullptr);
+    state.setProperty ("background", static_cast<int> (appearanceBackground.load (std::memory_order_relaxed)), nullptr);
+    state.setProperty ("panelOpacity", appearancePanelOpacity.load (std::memory_order_relaxed), nullptr);
+    state.setProperty ("glow", appearanceGlow.load (std::memory_order_relaxed), nullptr);
+    state.setProperty ("compact", appearanceCompact.load (std::memory_order_relaxed), nullptr);
+    copyXmlToBinary (*state.createXml(), destinationData);
+}
+
+void KeyBridgeAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
+{
+    if (auto xml = getXmlFromBinary (data, sizeInBytes))
+    {
+        const auto state = juce::ValueTree::fromXml (*xml);
+        if (state.hasType ("TuneRiteState"))
+        {
+            setAppearance (static_cast<std::uint32_t> (static_cast<int> (state.getProperty ("accent", static_cast<int> (0xff55c7e8)))),
+                           static_cast<std::uint32_t> (static_cast<int> (state.getProperty ("panel", static_cast<int> (0xff17202c)))),
+                           static_cast<std::uint32_t> (static_cast<int> (state.getProperty ("background", static_cast<int> (0xff0b1017)))),
+                           static_cast<float> (state.getProperty ("panelOpacity", 0.94f)),
+                           static_cast<float> (state.getProperty ("glow", 0.35f)),
+                           static_cast<bool> (state.getProperty ("compact", false)));
+        }
+    }
 }
 
 juce::AudioProcessorEditor* KeyBridgeAudioProcessor::createEditor()
