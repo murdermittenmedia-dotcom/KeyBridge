@@ -48,3 +48,25 @@ if (MSVC)
     target_compile_options(Tunerite PRIVATE /W4 /permissive- /EHsc)
     set_property(TARGET Tunerite PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
+
+juce_add_console_app(TuneriteOfflineAnalyzer
+    PRODUCT_NAME "Tunerite Offline Analyzer"
+)
+
+target_sources(TuneriteOfflineAnalyzer PRIVATE
+    Source/OfflineAnalyzer.cpp
+    Source/AnalysisCore.cpp
+)
+
+target_link_libraries(TuneriteOfflineAnalyzer PRIVATE
+    juce::juce_audio_formats
+    juce::juce_audio_basics
+    juce::juce_dsp
+    juce::juce_recommended_config_flags
+    juce::juce_recommended_warning_flags
+)
+
+if (MSVC)
+    target_compile_options(TuneriteOfflineAnalyzer PRIVATE /W4 /permissive- /EHsc)
+    set_property(TARGET TuneriteOfflineAnalyzer PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
