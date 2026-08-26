@@ -61,9 +61,10 @@ namespace
         return output;
     }
 
-    std::vector<float> makeProgression (int root, int mode, double sampleRate)
+    std::vector<float> makeProgression (int root, int mode, double sampleRate, double detuneCents = 0.0)
     {
         constexpr double seconds = 16.0;
+        const auto detuneRatio = std::pow (2.0, detuneCents / 1200.0);
         const auto count = static_cast<size_t> (seconds * sampleRate);
         std::vector<float> output (count, 0.0f);
         // Five sustained functions with characteristic scale degrees and a deliberately longer final tonic.
@@ -80,13 +81,13 @@ namespace
             const auto end = static_cast<int> ((chord + 1) * chordSeconds * sampleRate);
             const auto chordRoot = mod12 (root + chordRoots[chord]);
             const auto third = chordMinor[chord] ? 3 : 4;
-            addTone (output, sampleRate, begin, end, frequencyForMidi (36 + chordRoot), 0.25);
-            addTone (output, sampleRate, begin, end, frequencyForMidi (48 + chordRoot), 0.18);
-            addTone (output, sampleRate, begin, end, frequencyForMidi (48 + chordRoot + third), 0.14);
-            addTone (output, sampleRate, begin, end, frequencyForMidi (48 + chordRoot + 7), 0.14);
+            addTone (output, sampleRate, begin, end, frequencyForMidi (36 + chordRoot) * detuneRatio, 0.25);
+            addTone (output, sampleRate, begin, end, frequencyForMidi (48 + chordRoot) * detuneRatio, 0.18);
+            addTone (output, sampleRate, begin, end, frequencyForMidi (48 + chordRoot + third) * detuneRatio, 0.14);
+            addTone (output, sampleRate, begin, end, frequencyForMidi (48 + chordRoot + 7) * detuneRatio, 0.14);
             // A sustained characteristic degree makes major/minor differentiation explicit.
             const auto characteristic = mode == 0 ? root + 11 : root + 8;
-            addTone (output, sampleRate, begin, end, frequencyForMidi (60 + mod12 (characteristic)), 0.055);
+            addTone (output, sampleRate, begin, end, frequencyForMidi (60 + mod12 (characteristic)) * detuneRatio, 0.055);
         }
         const auto kickInterval = static_cast<int> (0.5 * sampleRate);
         for (int start = 0; start < static_cast<int> (count); start += kickInterval)
@@ -155,16 +156,17 @@ namespace
         return pass;
     }
 
-    bool checkKey (std::vector<TestRecord>& records, int root, int mode)
+    bool checkKey (std::vector<TestRecord>& records, int root, int mode, double detuneCents = 0.0)
     {
         constexpr double sampleRate = 44100.0;
-        const auto result = tunerite::AnalysisCore::analyzeBeat (makeProgression (root, mode, sampleRate), sampleRate);
+        const auto result = tunerite::AnalysisCore::analyzeBeat (makeProgression (root, mode, sampleRate, detuneCents), sampleRate);
         const auto pass = result.keyValid && result.keyRoot == root && result.keyMode == mode;
         std::cout << "Expected key: " << names[root] << (mode == 0 ? " major" : " minor")
                   << " Detected key: " << (result.keyRoot >= 0 ? names[result.keyRoot] : "UNKNOWN")
                   << (result.keyMode == 0 ? " major" : result.keyMode == 1 ? " minor" : "")
                   << " Key confidence: " << result.keyConfidence << " Result: " << (pass ? "PASS" : "FAIL") << "\n";
-        records.push_back ({ "key_" + std::string (names[root]) + (mode == 0 ? "_major" : "_minor"), pass, 0.0, result.bpm,
+        const auto suffix = detuneCents == 0.0 ? "" : "_detuned_" + std::to_string (static_cast<int> (detuneCents));
+        records.push_back ({ "key_" + std::string (names[root]) + (mode == 0 ? "_major" : "_minor") + suffix, pass, 0.0, result.bpm,
                              root, mode, result.keyRoot, result.keyMode, result.bpmConfidence, result.keyConfidence, result.warning });
         return pass;
     }
@@ -181,6 +183,10 @@ int main()
     for (int root = 0; root < 12; ++root)
         for (int mode = 0; mode < 2; ++mode)
             passed = checkKey (records, root, mode) && passed;
+
+    // Development adversarial cases: mild global detuning must not erase a clear tonic resolution.
+    passed = checkKey (records, 0, 0, 22.0) && passed;
+    passed = checkKey (records, 9, 1, -19.0) && passed;
 
     constexpr double sampleRate = 44100.0;
     const auto ambiguous = tunerite::AnalysisCore::analyzeBeat (makeAmbiguousTriad (sampleRate), sampleRate);
