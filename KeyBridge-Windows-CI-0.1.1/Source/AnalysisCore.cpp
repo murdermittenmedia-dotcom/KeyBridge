@@ -397,7 +397,9 @@ namespace tunerite
         const auto highBin = std::min (fftSize / 2 - 1, static_cast<int> (std::floor (8000.0 / hzPerBin)));
         std::array<double, 3> previousBands {};
         std::vector<double> onset;
+        std::vector<double> tonalOnset;
         onset.reserve (static_cast<size_t> (frameCount));
+        tonalOnset.reserve (static_cast<size_t> (frameCount));
         std::vector<double> tuningAngles, tuningWeights;
 
         for (int frame = 0; frame < frameCount; ++frame)
@@ -426,7 +428,8 @@ namespace tunerite
             double positiveAttack = 0.0;
             for (int index = 1; index < fftSize; ++index)
                 positiveAttack += std::max (0.0, static_cast<double> (samples[static_cast<size_t> (start + index)]) - samples[static_cast<size_t> (start + index - 1)]);
-            onset.push_back (std::log1p (flux) + 1.25 * std::log1p (positiveAttack));
+            tonalOnset.push_back (std::log1p (flux));
+            onset.push_back (tonalOnset.back() + 1.25 * std::log1p (positiveAttack));
 
             if (frame % 4 != 0) continue;
             const auto flatness = safeLogFlatness (fftData, lowBin, highBin);
@@ -451,7 +454,9 @@ namespace tunerite
         }
 
         const auto onsetMean = std::accumulate (onset.begin(), onset.end(), 0.0) / onset.size();
+        const auto tonalOnsetMean = std::accumulate (tonalOnset.begin(), tonalOnset.end(), 0.0) / tonalOnset.size();
         for (auto& value : onset) value = std::max (0.0, value - onsetMean * 0.40);
+        for (auto& value : tonalOnset) value = std::max (0.0, value - tonalOnsetMean * 0.40);
         result.onsetCoverage = static_cast<double> (std::count_if (onset.begin(), onset.end(), [] (double value) { return value > 0.0; })) / onset.size();
         if (result.onsetCoverage < 0.03)
         {
@@ -554,11 +559,11 @@ namespace tunerite
         result.tempoValid = ! result.bpmUncertain;
 
         // Re-run tonal frames at a modest rate using the selected tuning and soft, non-nearest chroma binning.
-        const auto transientThreshold = percentile (onset, 0.90);
+        const auto transientThreshold = percentile (tonalOnset, 0.90);
         std::vector<std::array<double, 12>> tonalChromas;
         for (int frame = 0; frame < frameCount; frame += 4)
         {
-            if (onset[static_cast<size_t> (frame)] > transientThreshold && onset[static_cast<size_t> (frame)] > 0.0) continue;
+            if (tonalOnset[static_cast<size_t> (frame)] > transientThreshold && tonalOnset[static_cast<size_t> (frame)] > 0.0) continue;
             const auto start = frame * hopSize;
             std::fill (fftData.begin(), fftData.end(), 0.0f);
             for (int index = 0; index < fftSize; ++index)
