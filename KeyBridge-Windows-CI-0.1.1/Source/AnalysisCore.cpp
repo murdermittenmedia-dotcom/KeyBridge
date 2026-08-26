@@ -478,8 +478,11 @@ namespace tunerite
             return result;
         }
         if (result.tempoCandidates.size() > 3) result.tempoCandidates.resize (3);
-        result.bpm = result.tempoCandidates.front().bpm;
-        result.alternativeBpm = result.tempoCandidates.size() > 1 ? result.tempoCandidates[1].bpm : 0.0;
+        const auto highStabilityDirectTempo = directTempo.bpm > 0.0 && directTempo.phase >= 0.93;
+        result.bpm = highStabilityDirectTempo ? directTempo.bpm : result.tempoCandidates.front().bpm;
+        result.alternativeBpm = 0.0;
+        for (const auto& candidate : result.tempoCandidates)
+            if (std::abs (candidate.bpm - result.bpm) > 0.25) { result.alternativeBpm = candidate.bpm; break; }
         result.halfTimeBpm = result.bpm * 0.5;
         result.doubleTimeBpm = result.bpm * 2.0;
         const auto runnerScore = result.tempoCandidates.size() > 1 ? result.tempoCandidates[1].score : 0.0;
@@ -489,16 +492,21 @@ namespace tunerite
         const auto medianBpm = percentile (bpmValues, 0.5);
         std::vector<double> deviations;
         for (const auto bpm : bpmValues) deviations.push_back (std::abs (bpm - medianBpm));
-        result.tempoStability = clamp01 (1.0 - percentile (deviations, 0.5) / 3.0);
-        result.tempoAmbiguous = result.tempoCandidates.size() > 1 && (margin < 0.16 || std::abs (result.bpm / result.alternativeBpm - 2.0) < 0.05 || std::abs (result.bpm / result.alternativeBpm - 0.5) < 0.05);
-        result.bpmConfidence = clamp01 (0.38 * clamp01 (margin / 0.35) + 0.36 * result.tempoStability + 0.16 * std::min (1.0, result.usableTempoWindows / 3.0) + 0.10 * clamp01 (result.onsetCoverage / 0.20));
+        result.tempoStability = highStabilityDirectTempo ? directTempo.phase : clamp01 (1.0 - percentile (deviations, 0.5) / 3.0);
+        result.tempoAmbiguous = ! highStabilityDirectTempo && result.tempoCandidates.size() > 1
+            && (margin < 0.16 || std::abs (result.bpm / result.alternativeBpm - 2.0) < 0.05 || std::abs (result.bpm / result.alternativeBpm - 0.5) < 0.05);
+        result.bpmConfidence = highStabilityDirectTempo
+            ? clamp01 (0.76 + 0.18 * directTempo.phase + 0.06 * std::min (1.0, result.usableTempoWindows / 3.0))
+            : clamp01 (0.38 * clamp01 (margin / 0.35) + 0.36 * result.tempoStability + 0.16 * std::min (1.0, result.usableTempoWindows / 3.0) + 0.10 * clamp01 (result.onsetCoverage / 0.20));
         result.bpmUncertain = result.bpmConfidence < 0.60 || result.tempoAmbiguous;
         result.tempoValid = ! result.bpmUncertain;
 
         // Re-run tonal frames at a modest rate using the selected tuning and soft, non-nearest chroma binning.
+        const auto transientThreshold = percentile (onset, 0.90);
         std::vector<std::array<double, 12>> tonalChromas;
         for (int frame = 0; frame < frameCount; frame += 4)
         {
+            if (onset[static_cast<size_t> (frame)] > transientThreshold && onset[static_cast<size_t> (frame)] > 0.0) continue;
             const auto start = frame * hopSize;
             std::fill (fftData.begin(), fftData.end(), 0.0f);
             for (int index = 0; index < fftSize; ++index)
@@ -565,7 +573,7 @@ namespace tunerite
         result.tonalWindowAgreement = agreementSum / tonalChromas.size();
         result.harmonicContentSufficient = result.tonalWindowAgreement >= 0.42
             && result.tonalClarity >= 0.12
-            && pitchClassConcentration >= 0.08;
+            && pitchClassConcentration >= 0.12;
         result.relativeModeAmbiguous = keys.front().mode != keys[1].mode && clarity < 0.08;
         result.keyConfidence = clamp01 (0.48 * result.tonalClarity + 0.32 * result.tonalWindowAgreement + 0.12 * std::min (1.0, tonalChromas.size() / 24.0) + 0.08 * result.tuningConfidence);
         result.modeConfidence = clamp01 (clarity / 0.18);
