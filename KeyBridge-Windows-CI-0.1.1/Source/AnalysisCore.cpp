@@ -134,6 +134,43 @@ namespace
             if (score > best.score)
                 best = { 60.0 * onsetRate / refinedLag, score, phaseScore };
         }
+
+        // Local onset intervals resolve period multiples that remain equally periodic in autocorrelation.
+        const auto peakThreshold = percentile (values, 0.72);
+        const auto minimumPeakDistance = std::max (1, static_cast<int> (std::round (onsetRate * 0.12)));
+        std::vector<int> peaks;
+        for (int index = 1; index + 1 < static_cast<int> (values.size()); ++index)
+        {
+            if (values[static_cast<size_t> (index)] < peakThreshold
+                || values[static_cast<size_t> (index)] < values[static_cast<size_t> (index - 1)]
+                || values[static_cast<size_t> (index)] < values[static_cast<size_t> (index + 1)]) continue;
+            if (! peaks.empty() && index - peaks.back() < minimumPeakDistance)
+            {
+                if (values[static_cast<size_t> (index)] > values[static_cast<size_t> (peaks.back())]) peaks.back() = index;
+                continue;
+            }
+            peaks.push_back (index);
+        }
+        if (peaks.size() >= 6)
+        {
+            std::vector<double> intervals;
+            for (size_t index = 1; index < peaks.size(); ++index)
+            {
+                const auto interval = peaks[index] - peaks[index - 1];
+                const auto bpm = 60.0 * onsetRate / interval;
+                if (bpm >= 40.0 && bpm <= 240.0) intervals.push_back (interval);
+            }
+            if (intervals.size() >= 5)
+            {
+                const auto medianInterval = percentile (intervals, 0.5);
+                std::vector<double> deviations;
+                for (const auto interval : intervals) deviations.push_back (std::abs (interval - medianInterval));
+                const auto stability = clamp01 (1.0 - percentile (deviations, 0.5) / std::max (1.0, medianInterval * 0.08));
+                const auto ioiScore = 0.70 + 0.30 * stability;
+                if (stability >= 0.70 && (best.bpm <= 0.0 || ioiScore >= best.score * 0.88))
+                    best = { 60.0 * onsetRate / medianInterval, ioiScore, stability };
+            }
+        }
         return best;
     }
 
