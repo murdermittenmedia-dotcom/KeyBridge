@@ -64,6 +64,8 @@ void KeyBridgeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
 {
     juce::ignoreUnused (midi);
     juce::ScopedNoDenormals noDenormals;
+    audioCallbackCount.fetch_add (1, std::memory_order_relaxed);
+    lastAudioBlockSize.store (buffer.getNumSamples(), std::memory_order_relaxed);
 
     for (auto channel = getTotalNumInputChannels(); channel < getTotalNumOutputChannels(); ++channel)
         buffer.clear (channel, 0, buffer.getNumSamples());
@@ -257,6 +259,8 @@ void KeyBridgeAudioProcessor::resetLiveResults() noexcept
     keyConfidence.store (0.0f, std::memory_order_relaxed);
     bpmConfidence.store (0.0f, std::memory_order_relaxed);
     inputPeak.store (0.0f, std::memory_order_relaxed);
+    audioCallbackCount.store (0, std::memory_order_relaxed);
+    lastAudioBlockSize.store (0, std::memory_order_relaxed);
     leftInputPeak.store (0.0f, std::memory_order_relaxed);
     rightInputPeak.store (0.0f, std::memory_order_relaxed);
     beatRms.store (0.0f, std::memory_order_relaxed);

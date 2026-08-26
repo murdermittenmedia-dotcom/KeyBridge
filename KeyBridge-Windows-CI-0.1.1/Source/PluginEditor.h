@@ -16,10 +16,12 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
     void parentHierarchyChanged() override;
+    void visibilityChanged() override;
 
 private:
     void timerCallback() override;
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
+    void ensureUiTimerRunning();
     void setMode (int mode);
     void refreshView();
     void refreshAppearance();

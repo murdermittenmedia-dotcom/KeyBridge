@@ -47,6 +47,8 @@ public:
     float getKeyConfidence() const noexcept { return keyConfidence.load (std::memory_order_relaxed); }
     float getBpmConfidence() const noexcept { return bpmConfidence.load (std::memory_order_relaxed); }
     float getInputLevel() const noexcept { return inputPeak.load (std::memory_order_relaxed); }
+    std::uint64_t getAudioCallbackCount() const noexcept { return audioCallbackCount.load (std::memory_order_relaxed); }
+    int getLastAudioBlockSize() const noexcept { return lastAudioBlockSize.load (std::memory_order_relaxed); }
     float getLeftInputLevel() const noexcept { return leftInputPeak.load (std::memory_order_relaxed); }
     float getRightInputLevel() const noexcept { return rightInputPeak.load (std::memory_order_relaxed); }
     int getAnalysisFrames() const noexcept { return analysisFrames.load (std::memory_order_relaxed); }
@@ -162,6 +164,8 @@ private:
     std::atomic<float> keyConfidence { 0.0f };
     std::atomic<float> bpmConfidence { 0.0f };
     std::atomic<float> inputPeak { 0.0f };
+    std::atomic<std::uint64_t> audioCallbackCount { 0 };
+    std::atomic<int> lastAudioBlockSize { 0 };
     std::atomic<float> leftInputPeak { 0.0f };
     std::atomic<float> rightInputPeak { 0.0f };
     std::atomic<float> beatRms { 0.0f };

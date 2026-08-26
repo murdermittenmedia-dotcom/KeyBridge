@@ -91,5 +91,31 @@ if (MSVC)
     set_property(TARGET TuneriteAnalysisCoreSyntheticTests PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
 
+juce_add_console_app(TuneriteProcessorCaptureTests
+    PRODUCT_NAME "Tunerite Processor Capture Tests"
+)
+
+juce_generate_juce_header(TuneriteProcessorCaptureTests)
+
+target_sources(TuneriteProcessorCaptureTests PRIVATE
+    Source/PluginProcessorCaptureTests.cpp
+    Source/PluginProcessor.cpp
+    Source/PluginEditor.cpp
+    Source/AnalysisCore.cpp
+)
+
+target_link_libraries(TuneriteProcessorCaptureTests PRIVATE
+    juce::juce_audio_utils
+    juce::juce_dsp
+    juce::juce_recommended_config_flags
+    juce::juce_recommended_warning_flags
+)
+
+if (MSVC)
+    target_compile_options(TuneriteProcessorCaptureTests PRIVATE /W4 /permissive- /EHsc)
+    set_property(TARGET TuneriteProcessorCaptureTests PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+
 enable_testing()
 add_test(NAME TuneriteAnalysisCoreSyntheticTests COMMAND TuneriteAnalysisCoreSyntheticTests)
+add_test(NAME TuneriteProcessorCaptureTests COMMAND TuneriteProcessorCaptureTests)

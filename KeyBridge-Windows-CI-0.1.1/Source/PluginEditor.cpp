@@ -142,6 +142,11 @@ KeyBridgeAudioProcessorEditor::KeyBridgeAudioProcessorEditor (KeyBridgeAudioProc
     processor.setAnalysisMode (0);
     refreshAppearance();
     setMode (0);
+    juce::MessageManager::callAsync ([editor = juce::Component::SafePointer<KeyBridgeAudioProcessorEditor> (this)]
+    {
+        if (editor != nullptr)
+            editor->ensureUiTimerRunning();
+    });
 }
 
 void KeyBridgeAudioProcessorEditor::addLabel (juce::Label& label, float size, juce::Justification justification, juce::Colour colour)
@@ -193,16 +198,24 @@ juce::String KeyBridgeAudioProcessorEditor::midiName (float midi) const
     return juce::String (noteNames[static_cast<size_t> ((rounded % 12 + 12) % 12)]) + juce::String (octave);
 }
 
+void KeyBridgeAudioProcessorEditor::ensureUiTimerRunning()
+{
+    if (! isTimerRunning())
+        startTimerHz (10);
+}
+
 void KeyBridgeAudioProcessorEditor::parentHierarchyChanged()
 {
     if (isShowing())
-    {
-        if (! isTimerRunning()) startTimerHz (10);
-    }
+        ensureUiTimerRunning();
+}
+
+void KeyBridgeAudioProcessorEditor::visibilityChanged()
+{
+    if (isShowing())
+        ensureUiTimerRunning();
     else
-    {
         stopTimer();
-    }
 }
 
 void KeyBridgeAudioProcessorEditor::setMode (int mode)
@@ -596,7 +609,9 @@ void KeyBridgeAudioProcessorEditor::refreshView()
         analyzeButton.setButtonText ("REVIEW COMBINED"); stopButton.setButtonText ("FINISH CAPTURE"); saveButton.setButtonText ("SAVED RESULTS ONLY"); clearButton.setButtonText ("CLEAR RESULTS");
     }
 
-    visualStatusLabel.setText (live ? "CAPTURE DIAGNOSTIC: buffer " + juce::String (processor.getAnalysisDuration(), 1) + "s | signal " + juce::String (processor.getCapturedSignalSeconds(), 1) + "s | minimum finish 6.0s" : "INPUT HISTORY: real meter samples only. No decorative animation.", juce::dontSendNotification);
+    const auto callbackText = "callbacks " + juce::String (static_cast<juce::int64> (processor.getAudioCallbackCount()))
+        + " | block " + juce::String (processor.getLastAudioBlockSize());
+    visualStatusLabel.setText (live ? "CAPTURE DIAGNOSTIC: " + callbackText + " | buffer " + juce::String (processor.getAnalysisDuration(), 1) + "s | signal " + juce::String (processor.getCapturedSignalSeconds(), 1) + "s | minimum finish 6.0s" : "INPUT HISTORY: " + callbackText + " | real meter samples only. No decorative animation.", juce::dontSendNotification);
     updateActionStates();
 }
 
