@@ -571,13 +571,15 @@ namespace tunerite
         for (const auto& frameChroma : tonalChromas)
             agreementSum += std::max (0.0, chromaCosine (frameChroma, result.chroma));
         result.tonalWindowAgreement = agreementSum / tonalChromas.size();
+        const auto tonalMotion = clamp01 (1.0 - result.tonalWindowAgreement);
         result.harmonicContentSufficient = result.tonalWindowAgreement >= 0.42
             && result.tonalClarity >= 0.12
-            && pitchClassConcentration >= 0.12;
+            && pitchClassConcentration >= 0.12
+            && tonalMotion >= 0.025;
         result.relativeModeAmbiguous = keys.front().mode != keys[1].mode && clarity < 0.08;
         result.keyConfidence = clamp01 (0.48 * result.tonalClarity + 0.32 * result.tonalWindowAgreement + 0.12 * std::min (1.0, tonalChromas.size() / 24.0) + 0.08 * result.tuningConfidence);
         result.modeConfidence = clamp01 (clarity / 0.18);
-        result.keyUncertain = ! result.harmonicContentSufficient || result.keyConfidence < 0.62 || result.relativeModeAmbiguous;
+        result.keyUncertain = ! result.harmonicContentSufficient || result.keyConfidence < 0.55 || result.relativeModeAmbiguous;
         result.keyValid = ! result.keyUncertain;
         if (result.keyValid)
         {
