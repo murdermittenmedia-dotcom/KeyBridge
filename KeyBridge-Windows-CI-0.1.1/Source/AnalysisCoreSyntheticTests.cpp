@@ -66,26 +66,32 @@ namespace
         constexpr double seconds = 16.0;
         const auto count = static_cast<size_t> (seconds * sampleRate);
         std::vector<float> output (count, 0.0f);
-        // Four two-bar chords, repeated: tonic -> predominant -> dominant -> resolved tonic.
-        const std::array<int, 4> degrees = mode == 0 ? std::array<int, 4> { 0, 5, 7, 0 } : std::array<int, 4> { 0, 5, 7, 0 };
-        const auto chordSeconds = 4.0;
-        for (int chord = 0; chord < 4; ++chord)
+        // Five sustained functions with characteristic scale degrees and a deliberately longer final tonic.
+        const std::array<int, 5> majorRoots { { 0, 5, 7, 0, 0 } };
+        const std::array<bool, 5> majorMinor { { false, false, false, false, false } };
+        const std::array<int, 5> minorRoots { { 0, 8, 10, 7, 0 } };
+        const std::array<bool, 5> minorMinor { { true, false, false, false, true } };
+        const auto& chordRoots = mode == 0 ? majorRoots : minorRoots;
+        const auto& chordMinor = mode == 0 ? majorMinor : minorMinor;
+        const auto chordSeconds = seconds / chordRoots.size();
+        for (size_t chord = 0; chord < chordRoots.size(); ++chord)
         {
             const auto begin = static_cast<int> (chord * chordSeconds * sampleRate);
             const auto end = static_cast<int> ((chord + 1) * chordSeconds * sampleRate);
-            const auto chordRoot = mod12 (root + degrees[static_cast<size_t> (chord)]);
-            const bool minorChord = mode == 1 && (chord == 0 || chord == 1);
-            const auto third = minorChord ? 3 : 4;
-            addTone (output, sampleRate, begin, end, frequencyForMidi (36 + chordRoot), 0.22);
+            const auto chordRoot = mod12 (root + chordRoots[chord]);
+            const auto third = chordMinor[chord] ? 3 : 4;
+            addTone (output, sampleRate, begin, end, frequencyForMidi (36 + chordRoot), 0.25);
             addTone (output, sampleRate, begin, end, frequencyForMidi (48 + chordRoot), 0.18);
-            addTone (output, sampleRate, begin, end, frequencyForMidi (48 + chordRoot + third), 0.13);
-            addTone (output, sampleRate, begin, end, frequencyForMidi (48 + chordRoot + 7), 0.13);
+            addTone (output, sampleRate, begin, end, frequencyForMidi (48 + chordRoot + third), 0.14);
+            addTone (output, sampleRate, begin, end, frequencyForMidi (48 + chordRoot + 7), 0.14);
+            // A sustained characteristic degree makes major/minor differentiation explicit.
+            const auto characteristic = mode == 0 ? root + 11 : root + 8;
+            addTone (output, sampleRate, begin, end, frequencyForMidi (60 + mod12 (characteristic)), 0.055);
         }
-        // Add a quiet, regular kick so harmonic key tests still include realistic transient context.
         const auto kickInterval = static_cast<int> (0.5 * sampleRate);
         for (int start = 0; start < static_cast<int> (count); start += kickInterval)
-            for (int n = 0; n < 700 && start + n < static_cast<int> (count); ++n)
-                output[static_cast<size_t> (start + n)] += static_cast<float> (0.20 * std::exp (-static_cast<double> (n) / 95.0));
+            for (int n = 0; n < 550 && start + n < static_cast<int> (count); ++n)
+                output[static_cast<size_t> (start + n)] += static_cast<float> (0.12 * std::exp (-static_cast<double> (n) / 90.0));
         return output;
     }
 

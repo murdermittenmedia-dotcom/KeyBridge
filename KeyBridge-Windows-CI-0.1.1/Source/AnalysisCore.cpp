@@ -466,6 +466,10 @@ namespace tunerite
             return result;
         }
         for (auto& value : result.chroma) value /= energy;
+        double chromaEntropy = 0.0;
+        for (const auto value : result.chroma)
+            if (value > 1.0e-12) chromaEntropy -= value * std::log (value);
+        const auto pitchClassConcentration = clamp01 (1.0 - chromaEntropy / std::log (12.0));
         const auto keys = scoreKeys (result.chroma);
         for (int index = 0; index < 3; ++index)
         {
@@ -478,7 +482,9 @@ namespace tunerite
         for (const auto& frameChroma : tonalChromas)
             agreementSum += std::max (0.0, chromaCosine (frameChroma, result.chroma));
         result.tonalWindowAgreement = agreementSum / tonalChromas.size();
-        result.harmonicContentSufficient = result.tonalWindowAgreement >= 0.42 && result.tonalClarity >= 0.12;
+        result.harmonicContentSufficient = result.tonalWindowAgreement >= 0.42
+            && result.tonalClarity >= 0.12
+            && pitchClassConcentration >= 0.08;
         result.relativeModeAmbiguous = keys.front().mode != keys[1].mode && clarity < 0.08;
         result.keyConfidence = clamp01 (0.48 * result.tonalClarity + 0.32 * result.tonalWindowAgreement + 0.12 * std::min (1.0, tonalChromas.size() / 24.0) + 0.08 * result.tuningConfidence);
         result.modeConfidence = clamp01 (clarity / 0.18);
