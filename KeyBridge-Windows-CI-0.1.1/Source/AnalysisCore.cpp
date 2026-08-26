@@ -194,7 +194,7 @@ namespace
             attackPositions.push_back (start);
         }
         if (attackEnergy.size() < 12) return result;
-        const auto threshold = percentile (attackEnergy, 0.985);
+        const auto threshold = percentile (attackEnergy, 0.970);
         const auto minimumDistance = std::max (1, static_cast<int> (std::round (0.12 * sampleRate / envelopeHop)));
         std::vector<int> peaks;
         for (int index = 1; index + 1 < static_cast<int> (attackEnergy.size()); ++index)
