@@ -210,10 +210,32 @@ namespace
             peaks.push_back (index);
         }
         if (peaks.size() < 6) return result;
-        std::vector<double> intervals;
-        for (size_t index = 1; index < peaks.size(); ++index)
+        std::vector<int> refinedPeaks;
+        refinedPeaks.reserve (peaks.size());
+        for (const auto peak : peaks)
         {
-            const auto interval = attackPositions[static_cast<size_t> (peaks[index])] - attackPositions[static_cast<size_t> (peaks[index - 1])];
+            const auto centre = attackPositions[static_cast<size_t> (peak)];
+            const auto begin = std::max (1, centre - envelopeHop);
+            const auto end = std::min (static_cast<int> (samples.size()) - 1, centre + envelopeHop);
+            auto strongest = begin;
+            auto strongestDerivative = 0.0;
+            for (int index = begin; index <= end; ++index)
+            {
+                const auto derivative = std::abs (static_cast<double> (samples[static_cast<size_t> (index)]) - samples[static_cast<size_t> (index - 1)]);
+                if (derivative > strongestDerivative)
+                {
+                    strongestDerivative = derivative;
+                    strongest = index;
+                }
+            }
+            if (refinedPeaks.empty() || strongest - refinedPeaks.back() >= static_cast<int> (sampleRate * 0.12))
+                refinedPeaks.push_back (strongest);
+        }
+        if (refinedPeaks.size() < 6) return result;
+        std::vector<double> intervals;
+        for (size_t index = 1; index < refinedPeaks.size(); ++index)
+        {
+            const auto interval = refinedPeaks[index] - refinedPeaks[index - 1];
             const auto bpm = 60.0 * sampleRate / interval;
             if (bpm >= 40.0 && bpm <= 240.0) intervals.push_back (interval);
         }
