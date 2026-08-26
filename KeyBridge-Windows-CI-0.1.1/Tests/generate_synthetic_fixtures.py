@@ -37,16 +37,16 @@ def beat_fixture(bpm: float, seconds: float = 16.0) -> list[float]:
     for index in range(count):
         time = index / SAMPLE_RATE
         output[index] = (
-            0.12 * math.sin(2.0 * PI * 130.8128 * time)
-            + 0.12 * math.sin(2.0 * PI * 164.8138 * time)
-            + 0.12 * math.sin(2.0 * PI * 195.9977 * time)
+            0.06 * math.sin(2.0 * PI * 130.8128 * time)
+            + 0.06 * math.sin(2.0 * PI * 164.8138 * time)
+            + 0.06 * math.sin(2.0 * PI * 195.9977 * time)
         )
     for start in range(0, count, interval):
         for sample_index in range(900):
             position = start + sample_index
             if position >= count:
                 break
-            output[position] += 0.85 * math.exp(-sample_index / 130.0)
+            output[position] += 0.80 * math.exp(-sample_index / 130.0)
     return output
 
 
