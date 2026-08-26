@@ -174,6 +174,47 @@ namespace
         return best;
     }
 
+    TempoWindow estimateDirectTransientTempo (const std::vector<float>& samples, double sampleRate)
+    {
+        TempoWindow result;
+        if (samples.size() < static_cast<size_t> (sampleRate * 4.0)) return result;
+        std::vector<double> changes;
+        changes.reserve (samples.size() - 1);
+        for (size_t index = 1; index < samples.size(); ++index)
+            changes.push_back (std::abs (static_cast<double> (samples[index]) - samples[index - 1]));
+        const auto threshold = percentile (changes, 0.997);
+        const auto minimumDistance = std::max (1, static_cast<int> (std::round (sampleRate * 0.12)));
+        std::vector<int> peaks;
+        for (int index = 1; index + 1 < static_cast<int> (changes.size()); ++index)
+        {
+            if (changes[static_cast<size_t> (index)] < threshold
+                || changes[static_cast<size_t> (index)] < changes[static_cast<size_t> (index - 1)]
+                || changes[static_cast<size_t> (index)] < changes[static_cast<size_t> (index + 1)]) continue;
+            if (! peaks.empty() && index - peaks.back() < minimumDistance)
+            {
+                if (changes[static_cast<size_t> (index)] > changes[static_cast<size_t> (peaks.back())]) peaks.back() = index;
+                continue;
+            }
+            peaks.push_back (index);
+        }
+        if (peaks.size() < 6) return result;
+        std::vector<double> intervals;
+        for (size_t index = 1; index < peaks.size(); ++index)
+        {
+            const auto interval = peaks[index] - peaks[index - 1];
+            const auto bpm = 60.0 * sampleRate / interval;
+            if (bpm >= 40.0 && bpm <= 240.0) intervals.push_back (interval);
+        }
+        if (intervals.size() < 5) return result;
+        const auto medianInterval = percentile (intervals, 0.5);
+        std::vector<double> deviations;
+        for (const auto interval : intervals) deviations.push_back (std::abs (interval - medianInterval));
+        const auto stability = clamp01 (1.0 - percentile (deviations, 0.5) / std::max (1.0, medianInterval * 0.025));
+        if (stability < 0.70) return result;
+        result = { 60.0 * sampleRate / medianInterval, 0.75 + 0.25 * stability, stability };
+        return result;
+    }
+
     struct KeyScore
     {
         int root = -1;
@@ -396,6 +437,7 @@ namespace tunerite
             return result;
         }
         result.usableTempoWindows = static_cast<int> (windowTempi.size());
+        const auto directTempo = estimateDirectTransientTempo (samples, sampleRate);
 
         struct Aggregate { double weightedBpm = 0.0; double score = 0.0; int count = 0; };
         std::map<int, Aggregate> aggregate;
@@ -413,6 +455,8 @@ namespace tunerite
             if (value.score > 0.0)
                 result.tempoCandidates.push_back ({ value.weightedBpm / value.score, value.score / std::max (1, value.count) });
         }
+        if (directTempo.bpm > 0.0)
+            result.tempoCandidates.push_back ({ directTempo.bpm, directTempo.score * 1.03 });
         std::sort (result.tempoCandidates.begin(), result.tempoCandidates.end(), [] (const auto& a, const auto& b) { return a.score > b.score; });
 
         // Resolve a repeated-pulse family only when the faster integer multiple has comparable evidence across windows.
