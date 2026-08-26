@@ -37,7 +37,11 @@ void KeyBridgeAudioProcessor::prepareToPlay (double newSampleRate, int)
     completedSamples.store (0, std::memory_order_relaxed);
     completedBuffer.store (-1, std::memory_order_relaxed);
     captureRequested.store (false, std::memory_order_relaxed);
+    finishCaptureRequested.store (false, std::memory_order_relaxed);
     captureActive.store (false, std::memory_order_relaxed);
+    captureState.store (idle, std::memory_order_relaxed);
+    capturedSignalSamples.store (0, std::memory_order_relaxed);
+    capturedSignalSeconds.store (0.0f, std::memory_order_relaxed);
     captureGeneration.store (analysisGeneration.load (std::memory_order_relaxed), std::memory_order_relaxed);
     completedGeneration.store (0, std::memory_order_relaxed);
     captureProgress.store (0.0f, std::memory_order_relaxed);
@@ -95,6 +99,8 @@ void KeyBridgeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
         && strongestStereoEnergy > 1.0e-12
         && energy < strongestStereoEnergy * 0.18;
     const bool captureLeftOnly = destructiveStereoCancellation && leftEnergy >= rightEnergy;
+    const auto captureEnergy = destructiveStereoCancellation ? strongestStereoEnergy : energy;
+    const auto captureRms = static_cast<float> (std::sqrt (captureEnergy / static_cast<double> (buffer.getNumSamples())));
     inputPeak.store (0.85f * inputPeak.load (std::memory_order_relaxed) + 0.15f * blockPeak, std::memory_order_relaxed);
     leftInputPeak.store (0.85f * leftInputPeak.load (std::memory_order_relaxed) + 0.15f * leftPeak, std::memory_order_relaxed);
     rightInputPeak.store (0.85f * rightInputPeak.load (std::memory_order_relaxed) + 0.15f * rightPeak, std::memory_order_relaxed);
@@ -109,8 +115,12 @@ void KeyBridgeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
         activeBuffer.store (nextBuffer, std::memory_order_relaxed);
         capturedSamples.store (0, std::memory_order_relaxed);
         captureProgress.store (0.0f, std::memory_order_relaxed);
+        capturedSignalSamples.store (0, std::memory_order_relaxed);
+        capturedSignalSeconds.store (0.0f, std::memory_order_relaxed);
+        finishCaptureRequested.store (false, std::memory_order_relaxed);
         captureGeneration.store (analysisGeneration.fetch_add (1, std::memory_order_acq_rel) + 1, std::memory_order_release);
         resetLiveResults();
+        captureState.store (capturing, std::memory_order_release);
         captureActive.store (true, std::memory_order_release);
     }
 
@@ -133,6 +143,9 @@ void KeyBridgeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
             : 0.5f * (left[i] + right[i]);
     write += toCopy;
     capturedSamples.store (write, std::memory_order_relaxed);
+    if (captureRms > 0.0005f)
+        capturedSignalSamples.fetch_add (toCopy, std::memory_order_relaxed);
+    capturedSignalSeconds.store (static_cast<float> (capturedSignalSamples.load (std::memory_order_relaxed) / sampleRate), std::memory_order_relaxed);
     analysisFrames.fetch_add (1, std::memory_order_relaxed);
     analysisDuration.store (static_cast<float> (write / sampleRate), std::memory_order_relaxed);
     captureProgress.store (capacity > 0 ? static_cast<float> (write) / static_cast<float> (capacity) : 0.0f, std::memory_order_relaxed);
@@ -145,9 +158,18 @@ void KeyBridgeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
         vocalRms.store (0.85f * vocalRms.load (std::memory_order_relaxed) + 0.15f * rms, std::memory_order_relaxed);
     }
 
-    if (write >= capacity)
+    const auto minimumSamples = static_cast<int> (std::ceil (sampleRate * minimumCaptureSeconds));
+    const auto finishRequested = finishCaptureRequested.load (std::memory_order_acquire);
+    if (finishRequested && write < minimumSamples)
     {
+        finishCaptureRequested.store (false, std::memory_order_release);
+        captureState.store (captureRms > 0.0005f ? insufficientAudio : noSignal, std::memory_order_release);
+    }
+    else if (write >= capacity || (finishRequested && write >= minimumSamples))
+    {
+        finishCaptureRequested.store (false, std::memory_order_release);
         captureActive.store (false, std::memory_order_release);
+        captureState.store (processing, std::memory_order_release);
         completedBuffer.store (bufferIndex, std::memory_order_release);
         completedSamples.store (write, std::memory_order_release);
         completedMode.store (mode, std::memory_order_release);
@@ -187,6 +209,8 @@ void KeyBridgeAudioProcessor::workerLoop()
                 publishVocalResult (tunerite::AnalysisCore::analyzeVocal (view, sampleRate), generation);
         }
         workerBusy.store (false, std::memory_order_release);
+        if (generation == analysisGeneration.load (std::memory_order_acquire))
+            captureState.store (idle, std::memory_order_release);
     }
 }
 
@@ -259,8 +283,16 @@ void KeyBridgeAudioProcessor::startFreshAnalysis() noexcept
     {
         analysisEnabled.store (true, std::memory_order_relaxed);
         analysisGeneration.fetch_add (1, std::memory_order_acq_rel);
+        finishCaptureRequested.store (false, std::memory_order_release);
+        captureState.store (armed, std::memory_order_release);
         captureRequested.store (true, std::memory_order_release);
     }
+}
+
+void KeyBridgeAudioProcessor::finishCapture() noexcept
+{
+    if (captureActive.load (std::memory_order_acquire))
+        finishCaptureRequested.store (true, std::memory_order_release);
 }
 
 void KeyBridgeAudioProcessor::stopAnalysis() noexcept
@@ -269,6 +301,8 @@ void KeyBridgeAudioProcessor::stopAnalysis() noexcept
     analysisGeneration.fetch_add (1, std::memory_order_acq_rel);
     captureActive.store (false, std::memory_order_release);
     captureRequested.store (false, std::memory_order_release);
+    finishCaptureRequested.store (false, std::memory_order_release);
+    captureState.store (cancelled, std::memory_order_release);
     captureProgress.store (0.0f, std::memory_order_relaxed);
 }
 
@@ -320,6 +354,10 @@ void KeyBridgeAudioProcessor::resetAllResults() noexcept
     analysisGeneration.fetch_add (1, std::memory_order_acq_rel);
     captureActive.store (false, std::memory_order_release);
     captureRequested.store (false, std::memory_order_release);
+    finishCaptureRequested.store (false, std::memory_order_release);
+    captureState.store (idle, std::memory_order_release);
+    capturedSignalSamples.store (0, std::memory_order_relaxed);
+    capturedSignalSeconds.store (0.0f, std::memory_order_relaxed);
     resetLiveResults();
 }
 

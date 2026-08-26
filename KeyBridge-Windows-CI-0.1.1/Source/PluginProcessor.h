@@ -60,6 +60,9 @@ public:
     void setAnalysisMode (int mode) noexcept { analysisMode.store (juce::jlimit (0, 2, mode), std::memory_order_relaxed); }
     int getAnalysisMode() const noexcept { return analysisMode.load (std::memory_order_relaxed); }
     void startFreshAnalysis() noexcept;
+    // Requests worker analysis once at least the minimum audio capture is present; it never discards a valid partial capture.
+    void finishCapture() noexcept;
+    // Cancels a pending or active capture and explicitly discards its unsent audio.
     void stopAnalysis() noexcept;
     void setAnalysisEnabled (bool enabled) noexcept { analysisEnabled.store (enabled, std::memory_order_relaxed); }
 
@@ -89,6 +92,9 @@ public:
     bool getSavedVocalMelodic() const noexcept { return savedVocalMelodic.load (std::memory_order_relaxed); }
 
     float getCaptureProgress() const noexcept { return captureProgress.load (std::memory_order_relaxed); }
+    float getCapturedSignalSeconds() const noexcept { return capturedSignalSeconds.load (std::memory_order_relaxed); }
+    int getCaptureState() const noexcept { return captureState.load (std::memory_order_relaxed); }
+    bool isCaptureFinishRequested() const noexcept { return finishCaptureRequested.load (std::memory_order_relaxed); }
     float getVocalInputLevel() const noexcept { return vocalInputPeak.load (std::memory_order_relaxed); }
     float getVocalConfidence() const noexcept { return vocalConfidence.load (std::memory_order_relaxed); }
     float getVocalLowestMidi() const noexcept { return vocalLowestMidi.load (std::memory_order_relaxed); }
@@ -116,6 +122,8 @@ private:
     void publishVocalResult (const tunerite::VocalAnalysisResult&, std::uint64_t generation);
 
     static constexpr double captureSeconds = 16.0;
+    static constexpr double minimumCaptureSeconds = 6.0;
+    enum CaptureState { idle = 0, armed = 1, capturing = 2, processing = 3, noSignal = 4, insufficientAudio = 5, cancelled = 6 };
     double sampleRate = 44100.0;
     std::vector<float> captureBuffers[2];
     std::atomic<int> activeBuffer { 0 };
@@ -127,9 +135,13 @@ private:
     std::atomic<std::uint64_t> captureGeneration { 0 };
     std::atomic<std::uint64_t> completedGeneration { 0 };
     std::atomic<bool> captureRequested { false };
+    std::atomic<bool> finishCaptureRequested { false };
     std::atomic<bool> captureActive { false };
     std::atomic<bool> analysisEnabled { true };
     std::atomic<int> analysisMode { 0 };
+    std::atomic<int> captureState { idle };
+    std::atomic<int> capturedSignalSamples { 0 };
+    std::atomic<float> capturedSignalSeconds { 0.0f };
     std::atomic<float> captureProgress { 0.0f };
 
     std::thread workerThread;

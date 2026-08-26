@@ -74,7 +74,7 @@ KeyBridgeAudioProcessorEditor::KeyBridgeAudioProcessorEditor (KeyBridgeAudioProc
     vocalModeButton.onClick = [this] { setMode (1); };
     reviewModeButton.onClick = [this] { setMode (2); };
     analyzeButton.onClick = [this] { processor.startFreshAnalysis(); };
-    stopButton.onClick = [this] { processor.stopAnalysis(); };
+    stopButton.onClick = [this] { processor.finishCapture(); };
     saveButton.onClick = [this]
     {
         if (processor.getAnalysisMode() == 0) processor.saveBeatResult();
@@ -451,8 +451,17 @@ void KeyBridgeAudioProcessorEditor::refreshView()
 
     inputStatus.setText (signal ? "INPUT: ACTIVE" : "INPUT: NO SIGNAL", juce::dontSendNotification);
     inputStatus.setColour (juce::Label::textColourId, statusColour (inputStatus.getText()));
-    const auto status = live ? (processor.getCaptureProgress() < 1.0f ? "LISTENING" : "PROCESSING")
-                             : (mode == 2 ? "REVIEW READY" : signal ? "READY" : "NO SIGNAL");
+    juce::String status;
+    switch (processor.getCaptureState())
+    {
+        case 1: status = "ARMED - WAITING FOR AUDIO"; break;
+        case 2: status = processor.isCaptureFinishRequested() ? "FINISH REQUESTED" : "CAPTURING"; break;
+        case 3: status = "PROCESSING CAPTURE"; break;
+        case 4: status = "NO SIGNAL - KEEP PLAYING"; break;
+        case 5: status = "NEED 6 SECONDS BEFORE FINISH"; break;
+        case 6: status = "CAPTURE CANCELLED"; break;
+        default: status = mode == 2 ? "REVIEW READY" : signal ? "READY" : "NO SIGNAL"; break;
+    }
     analysisStatus.setText (juce::String ("STATUS: ") + status, juce::dontSendNotification);
     analysisStatus.setColour (juce::Label::textColourId, statusColour (status));
     projectBpmLabel.setText ("Project BPM: " + (processor.getHostBpm() > 0.0 ? juce::String (processor.getHostBpm(), 2) : "--"), juce::dontSendNotification);
@@ -571,23 +580,23 @@ void KeyBridgeAudioProcessorEditor::refreshView()
     if (mode == 0)
     {
         workflowLabel.setText ("1. CAPTURE BEAT   ->   2. CAPTURE VOCAL   ->   3. REVIEW SETTINGS", juce::dontSendNotification);
-        instructionLabel.setText ("Mute vocals. Play the beat for 8-16 bars, then press Analyze Beat.", juce::dontSendNotification);
-        analyzeButton.setButtonText ("ANALYZE BEAT"); saveButton.setButtonText ("SAVE BEAT RESULT"); clearButton.setButtonText ("CLEAR BEAT");
+        instructionLabel.setText ("Mute vocals. Press Analyze Beat, play at least 6 seconds, then press Finish Capture; it auto-finishes at 16 seconds.", juce::dontSendNotification);
+        analyzeButton.setButtonText ("ANALYZE BEAT"); stopButton.setButtonText ("FINISH CAPTURE"); saveButton.setButtonText ("SAVE BEAT RESULT"); clearButton.setButtonText ("CLEAR BEAT");
     }
     else if (mode == 1)
     {
         workflowLabel.setText ("1. CAPTURE BEAT   ->   2. CAPTURE VOCAL   ->   3. REVIEW SETTINGS", juce::dontSendNotification);
-        instructionLabel.setText ("Mute the beat. Play the isolated vocal for 8-16 bars, then press Analyze Vocal.", juce::dontSendNotification);
-        analyzeButton.setButtonText ("ANALYZE VOCAL"); saveButton.setButtonText ("SAVE VOCAL RESULT"); clearButton.setButtonText ("CLEAR VOCAL");
+        instructionLabel.setText ("Mute the beat. Press Analyze Vocal, play isolated voice for at least 6 seconds, then press Finish Capture; it auto-finishes at 16 seconds.", juce::dontSendNotification);
+        analyzeButton.setButtonText ("ANALYZE VOCAL"); stopButton.setButtonText ("FINISH CAPTURE"); saveButton.setButtonText ("SAVE VOCAL RESULT"); clearButton.setButtonText ("CLEAR VOCAL");
     }
     else
     {
         workflowLabel.setText ("1. CAPTURE BEAT   ->   2. CAPTURE VOCAL   ->   3. REVIEW SETTINGS", juce::dontSendNotification);
         instructionLabel.setText (beatSaved && vocalSaved ? "Both valid results are saved. Review and copy starting settings." : "Review is locked until both valid results are saved.", juce::dontSendNotification);
-        analyzeButton.setButtonText ("REVIEW COMBINED"); saveButton.setButtonText ("SAVED RESULTS ONLY"); clearButton.setButtonText ("CLEAR RESULTS");
+        analyzeButton.setButtonText ("REVIEW COMBINED"); stopButton.setButtonText ("FINISH CAPTURE"); saveButton.setButtonText ("SAVED RESULTS ONLY"); clearButton.setButtonText ("CLEAR RESULTS");
     }
 
-    visualStatusLabel.setText (live ? "LIVE ANALYSIS: real input level and capture duration " + juce::String (processor.getAnalysisDuration(), 1) + "s" : "INPUT HISTORY: real meter samples only. No decorative animation.", juce::dontSendNotification);
+    visualStatusLabel.setText (live ? "CAPTURE DIAGNOSTIC: buffer " + juce::String (processor.getAnalysisDuration(), 1) + "s | signal " + juce::String (processor.getCapturedSignalSeconds(), 1) + "s | minimum finish 6.0s" : "INPUT HISTORY: real meter samples only. No decorative animation.", juce::dontSendNotification);
     updateActionStates();
 }
 
@@ -598,7 +607,7 @@ void KeyBridgeAudioProcessorEditor::updateActionStates()
     const auto vocalReady = processor.getVocalConfidence() >= 0.55f && processor.getVocalVoicedPercent() >= 0.20f && ! processor.isAnalysisActive();
     const auto bothSaved = processor.hasValidBeatResult() && processor.hasValidVocalResult();
     analyzeButton.setEnabled (mode != 2 && ! processor.isAnalysisActive());
-    stopButton.setEnabled (processor.isAnalysisActive());
+    stopButton.setEnabled (processor.isAnalysisActive() && processor.getCaptureState() == 2);
     saveButton.setEnabled (mode == 0 ? beatReady : mode == 1 ? vocalReady : false);
     clearButton.setEnabled (mode == 0 ? processor.hasSavedBeatResult() : mode == 1 ? processor.hasSavedVocalResult() : bothSaved);
     copyBpmButton.setEnabled (processor.hasSavedBeatResult());
