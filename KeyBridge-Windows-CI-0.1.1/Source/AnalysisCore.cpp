@@ -423,7 +423,10 @@ namespace tunerite
                 flux += change * (band == 0 ? 1.15 : band == 1 ? 1.0 : 0.85);
                 previousBands[static_cast<size_t> (band)] = bandEnergy[static_cast<size_t> (band)];
             }
-            onset.push_back (std::log1p (flux));
+            double positiveAttack = 0.0;
+            for (int index = 1; index < fftSize; ++index)
+                positiveAttack += std::max (0.0, static_cast<double> (samples[static_cast<size_t> (start + index)]) - samples[static_cast<size_t> (start + index - 1)]);
+            onset.push_back (std::log1p (flux) + 1.25 * std::log1p (positiveAttack));
 
             if (frame % 4 != 0) continue;
             const auto flatness = safeLogFlatness (fftData, lowBin, highBin);
