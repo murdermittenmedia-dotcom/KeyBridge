@@ -1,64 +1,174 @@
 #include "AnalysisCore.h"
 
+#include <juce_dsp/juce_dsp.h>
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <map>
 #include <numeric>
 
 namespace
 {
     constexpr double pi = 3.14159265358979323846;
-    constexpr std::array<double, 12> majorProfile { { 6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88 } };
-    constexpr std::array<double, 12> minorProfile { { 6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17 } };
+    constexpr std::array<double, 12> krumhanslMajor { { 6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88 } };
+    constexpr std::array<double, 12> krumhanslMinor { { 6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17 } };
+    constexpr std::array<double, 12> temperleyMajor { { 0.748, 0.060, 0.488, 0.082, 0.670, 0.460, 0.096, 0.715, 0.104, 0.366, 0.057, 0.400 } };
+    constexpr std::array<double, 12> temperleyMinor { { 0.712, 0.084, 0.474, 0.618, 0.049, 0.460, 0.105, 0.747, 0.404, 0.067, 0.330, 0.133 } };
     constexpr std::array<const char*, 12> noteNames { { "C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B" } };
+
+    double clamp01 (double value) { return std::clamp (value, 0.0, 1.0); }
 
     double percentile (std::vector<double> values, double fraction)
     {
         if (values.empty()) return 0.0;
         std::sort (values.begin(), values.end());
-        return values[static_cast<size_t> (std::round (std::clamp (fraction, 0.0, 1.0) * static_cast<double> (values.size() - 1)))];
+        const auto index = static_cast<size_t> (std::round (std::clamp (fraction, 0.0, 1.0) * static_cast<double> (values.size() - 1)));
+        return values[index];
     }
 
-    double midiFromFrequency (double hz)
+    double midiFromFrequency (double hz, double tuningHz = 440.0)
     {
-        return 69.0 + 12.0 * std::log2 (hz / 440.0);
+        return 69.0 + 12.0 * std::log2 (hz / tuningHz);
     }
 
-    double goertzelPower (const std::vector<float>& samples, int start, int size, double frequency, double sampleRate)
+    int positiveMod (int value, int modulus)
     {
-        const auto omega = 2.0 * pi * frequency / sampleRate;
-        const auto coefficient = 2.0 * std::cos (omega);
-        double previous = 0.0;
-        double previousPrevious = 0.0;
-        for (int n = 0; n < size; ++n)
-        {
-            const auto window = 0.5 - 0.5 * std::cos (2.0 * pi * static_cast<double> (n) / static_cast<double> (size - 1));
-            const auto current = static_cast<double> (samples[static_cast<size_t> (start + n)]) * window + coefficient * previous - previousPrevious;
-            previousPrevious = previous;
-            previous = current;
-        }
-        return previousPrevious * previousPrevious + previous * previous - coefficient * previous * previousPrevious;
-    }
-
-    double profileCorrelation (const std::array<double, 12>& chroma, const std::array<double, 12>& profile, int shift)
-    {
-        double meanA = std::accumulate (chroma.begin(), chroma.end(), 0.0) / 12.0;
-        double meanB = std::accumulate (profile.begin(), profile.end(), 0.0) / 12.0;
-        double numerator = 0.0, energyA = 0.0, energyB = 0.0;
-        for (int i = 0; i < 12; ++i)
-        {
-            const auto a = chroma[static_cast<size_t> (i)] - meanA;
-            const auto b = profile[static_cast<size_t> ((i - shift + 12) % 12)] - meanB;
-            numerator += a * b;
-            energyA += a * a;
-            energyB += b * b;
-        }
-        return numerator / std::sqrt (energyA * energyB + 1.0e-12);
+        const auto result = value % modulus;
+        return result < 0 ? result + modulus : result;
     }
 
     std::string keyName (int root, int mode)
     {
-        return std::string (noteNames[static_cast<size_t> ((root + 12) % 12)]) + (mode == 0 ? " Major" : " Minor");
+        if (root < 0 || mode < 0) return "Unknown";
+        return std::string (noteNames[static_cast<size_t> (positiveMod (root, 12))]) + (mode == 0 ? " Major" : " Minor");
+    }
+
+    double profileCorrelation (const std::array<double, 12>& chroma, const std::array<double, 12>& profile, int root)
+    {
+        const auto meanA = std::accumulate (chroma.begin(), chroma.end(), 0.0) / 12.0;
+        const auto meanB = std::accumulate (profile.begin(), profile.end(), 0.0) / 12.0;
+        double numerator = 0.0, energyA = 0.0, energyB = 0.0;
+        for (int i = 0; i < 12; ++i)
+        {
+            const auto a = chroma[static_cast<size_t> (i)] - meanA;
+            const auto b = profile[static_cast<size_t> (positiveMod (i - root, 12))] - meanB;
+            numerator += a * b;
+            energyA += a * a;
+            energyB += b * b;
+        }
+        return numerator / std::sqrt (energyA * energyB + 1.0e-15);
+    }
+
+    double safeLogFlatness (const std::vector<float>& spectrum, int lowBin, int highBin)
+    {
+        double logSum = 0.0, linearSum = 0.0;
+        int count = 0;
+        for (int bin = lowBin; bin <= highBin; ++bin)
+        {
+            const auto value = std::max (1.0e-12, static_cast<double> (spectrum[static_cast<size_t> (bin)]));
+            logSum += std::log (value);
+            linearSum += value;
+            ++count;
+        }
+        if (count == 0) return 1.0;
+        return std::exp (logSum / count) / (linearSum / count + 1.0e-15);
+    }
+
+    struct TempoWindow
+    {
+        double bpm = 0.0;
+        double score = 0.0;
+        double phase = 0.0;
+    };
+
+    TempoWindow estimateTempoWindow (const std::vector<double>& onset, int begin, int end, double onsetRate)
+    {
+        TempoWindow best;
+        if (end - begin < 32) return best;
+        std::vector<double> values (onset.begin() + begin, onset.begin() + end);
+        const auto mean = std::accumulate (values.begin(), values.end(), 0.0) / values.size();
+        for (auto& value : values) value = std::max (0.0, value - mean * 0.25);
+        double energy = 0.0;
+        for (const auto value : values) energy += value * value;
+        if (energy < 1.0e-12) return best;
+
+        const auto minLag = std::max (1, static_cast<int> (std::floor (60.0 * onsetRate / 240.0)));
+        const auto maxLag = std::min (static_cast<int> (values.size()) - 2, static_cast<int> (std::ceil (60.0 * onsetRate / 40.0)));
+        std::vector<double> autocorrelation (static_cast<size_t> (maxLag + 1), 0.0);
+        for (int lag = minLag; lag <= maxLag; ++lag)
+        {
+            double sum = 0.0, leftEnergy = 0.0, rightEnergy = 0.0;
+            for (size_t index = static_cast<size_t> (lag); index < values.size(); ++index)
+            {
+                const auto left = values[index];
+                const auto right = values[index - static_cast<size_t> (lag)];
+                sum += left * right;
+                leftEnergy += left * left;
+                rightEnergy += right * right;
+            }
+            autocorrelation[static_cast<size_t> (lag)] = sum / std::sqrt (leftEnergy * rightEnergy + 1.0e-15);
+        }
+
+        for (int lag = minLag + 1; lag < maxLag - 1; ++lag)
+        {
+            const auto value = autocorrelation[static_cast<size_t> (lag)];
+            if (value <= 0.0 || value < autocorrelation[static_cast<size_t> (lag - 1)] || value < autocorrelation[static_cast<size_t> (lag + 1)]) continue;
+            const auto y0 = autocorrelation[static_cast<size_t> (lag - 1)];
+            const auto y1 = value;
+            const auto y2 = autocorrelation[static_cast<size_t> (lag + 1)];
+            const auto offset = std::clamp (0.5 * (y0 - y2) / (y0 - 2.0 * y1 + y2 + 1.0e-15), -0.5, 0.5);
+            const auto refinedLag = static_cast<double> (lag) + offset;
+            double bestPhaseEnergy = 0.0, totalPhaseEnergy = 0.0;
+            const auto roundedLag = std::max (1, static_cast<int> (std::round (refinedLag)));
+            for (int phase = 0; phase < roundedLag; ++phase)
+            {
+                double phaseEnergy = 0.0;
+                for (int index = phase; index < static_cast<int> (values.size()); index += roundedLag)
+                    phaseEnergy += values[static_cast<size_t> (index)];
+                bestPhaseEnergy = std::max (bestPhaseEnergy, phaseEnergy);
+                totalPhaseEnergy += phaseEnergy;
+            }
+            const auto phaseScore = bestPhaseEnergy / (totalPhaseEnergy + 1.0e-15);
+            const auto score = value * (0.78 + 0.22 * std::min (1.0, phaseScore * roundedLag));
+            if (score > best.score)
+                best = { 60.0 * onsetRate / refinedLag, score, phaseScore };
+        }
+        return best;
+    }
+
+    struct KeyScore
+    {
+        int root = -1;
+        int mode = -1;
+        double score = -1.0;
+    };
+
+    std::vector<KeyScore> scoreKeys (const std::array<double, 12>& chroma)
+    {
+        std::vector<KeyScore> result;
+        result.reserve (24);
+        for (int root = 0; root < 12; ++root)
+        {
+            const auto major = 0.60 * profileCorrelation (chroma, krumhanslMajor, root)
+                + 0.40 * profileCorrelation (chroma, temperleyMajor, root);
+            const auto minor = 0.60 * profileCorrelation (chroma, krumhanslMinor, root)
+                + 0.40 * profileCorrelation (chroma, temperleyMinor, root);
+            result.push_back ({ root, 0, major });
+            result.push_back ({ root, 1, minor });
+        }
+        std::sort (result.begin(), result.end(), [] (const auto& a, const auto& b) { return a.score > b.score; });
+        return result;
+    }
+
+    void addSoftChroma (std::array<double, 12>& chroma, double midi, double weight)
+    {
+        const auto lower = static_cast<int> (std::floor (midi));
+        const auto fraction = midi - lower;
+        const auto leftWeight = std::cos (fraction * pi * 0.5);
+        const auto rightWeight = std::sin (fraction * pi * 0.5);
+        chroma[static_cast<size_t> (positiveMod (lower, 12))] += weight * leftWeight * leftWeight;
+        chroma[static_cast<size_t> (positiveMod (lower + 1, 12))] += weight * rightWeight * rightWeight;
     }
 }
 
@@ -70,28 +180,35 @@ namespace tunerite
         peak = 0.0;
         if (samples.empty()) return {};
         const auto dc = std::accumulate (samples.begin(), samples.end(), 0.0) / static_cast<double> (samples.size());
-        std::vector<float> output;
-        output.reserve (samples.size());
+        std::vector<float> output (samples.size());
         double energy = 0.0;
-        for (const auto sample : samples)
+        for (size_t index = 0; index < samples.size(); ++index)
         {
-            const auto value = static_cast<float> (sample - dc);
+            const auto value = static_cast<float> (samples[index] - dc);
+            output[index] = value;
             peak = std::max (peak, std::abs (static_cast<double> (value)));
-            energy += static_cast<double> (value) * static_cast<double> (value);
-            output.push_back (value);
+            energy += static_cast<double> (value) * value;
         }
-        rms = std::sqrt (energy / static_cast<double> (samples.size()));
+        rms = std::sqrt (energy / samples.size());
+        const auto analysisGain = std::min (8.0, 0.18 / (rms + 1.0e-12));
+        for (auto& value : output) value = static_cast<float> (value * analysisGain);
         return output;
     }
 
     BeatAnalysisResult AnalysisCore::analyzeBeat (const std::vector<float>& monoSamples, double sampleRate)
     {
         BeatAnalysisResult result;
-        if (sampleRate <= 0.0 || monoSamples.size() < static_cast<size_t> (sampleRate * 4.0))
+        if (sampleRate < 8000.0 || sampleRate > 192000.0)
         {
-            result.warning = "Analysis needs at least four seconds of beat audio.";
+            result.warning = "Unsupported sample rate for beat analysis.";
             return result;
         }
+        if (monoSamples.size() < static_cast<size_t> (sampleRate * 6.0))
+        {
+            result.warning = "Analysis needs at least six seconds of beat audio.";
+            return result;
+        }
+
         auto samples = preprocessMono (monoSamples, result.rms, result.peak);
         result.durationSeconds = static_cast<double> (samples.size()) / sampleRate;
         if (result.rms < 1.0e-4)
@@ -99,143 +216,260 @@ namespace tunerite
             result.warning = "Input is too quiet for beat analysis.";
             return result;
         }
-
-        constexpr int onsetFrame = 1024;
-        constexpr int onsetHop = 256;
-        const auto onsetFrames = static_cast<int> ((samples.size() - onsetFrame) / onsetHop);
-        std::vector<double> onset;
-        onset.reserve (static_cast<size_t> (onsetFrames));
-        double previousBandEnergy = 0.0;
-        for (int frame = 0; frame < onsetFrames; ++frame)
+        if (result.peak >= 0.9995)
         {
-            const auto start = frame * onsetHop;
-            double highPassedEnergy = 0.0;
-            for (int n = 1; n < onsetFrame; ++n)
-            {
-                const auto difference = static_cast<double> (samples[static_cast<size_t> (start + n)]) - static_cast<double> (samples[static_cast<size_t> (start + n - 1)]);
-                highPassedEnergy += difference * difference;
-            }
-            const auto flux = std::max (0.0, highPassedEnergy - previousBandEnergy);
-            onset.push_back (std::log1p (flux));
-            previousBandEnergy = highPassedEnergy;
-        }
-        const auto onsetMean = std::accumulate (onset.begin(), onset.end(), 0.0) / static_cast<double> (onset.size());
-        for (auto& value : onset) value = std::max (0.0, value - onsetMean * 0.35);
-
-        const int minLag = std::max (1, static_cast<int> (std::floor (60.0 * sampleRate / (240.0 * onsetHop))));
-        const int maxLag = std::min (static_cast<int> (onset.size()) - 2, static_cast<int> (std::ceil (60.0 * sampleRate / (40.0 * onsetHop))));
-        std::vector<TempoCandidate> candidates;
-        for (int lag = minLag; lag <= maxLag; ++lag)
-        {
-            double score = 0.0;
-            for (size_t i = static_cast<size_t> (lag); i < onset.size(); ++i)
-                score += onset[i] * onset[i - static_cast<size_t> (lag)];
-            candidates.push_back ({ 60.0 * sampleRate / (static_cast<double> (onsetHop) * lag), score / static_cast<double> (onset.size() - static_cast<size_t> (lag)) });
-        }
-        // Preserve raw onset scores while penalising longer periodic multiples below.
-        std::vector<double> rawTempoScores;
-        rawTempoScores.reserve (candidates.size());
-        for (const auto& candidate : candidates) rawTempoScores.push_back (candidate.score);
-
-        // A long autocorrelation lag can be an integer multiple of a shorter repeating beat period.
-        // Penalise those multiples only when a corresponding shorter lag carries nearly the same onset evidence.
-        for (auto& candidate : candidates)
-        {
-            const auto lag = static_cast<int> (std::round (60.0 * sampleRate / (static_cast<double> (onsetHop) * candidate.bpm)));
-            if (candidate.score <= 0.0 || lag <= minLag) continue;
-            double strongestSubperiod = 0.0;
-            for (int divisor = 2; divisor <= 4; ++divisor)
-            {
-                const auto subLag = static_cast<int> (std::round (static_cast<double> (lag) / divisor));
-                if (subLag < minLag || subLag >= lag || subLag > maxLag) continue;
-                strongestSubperiod = std::max (strongestSubperiod, rawTempoScores[static_cast<size_t> (subLag - minLag)]);
-            }
-            const auto subperiodRatio = strongestSubperiod / candidate.score;
-            if (subperiodRatio >= 0.75)
-                candidate.score *= std::max (0.20, 1.0 - 0.60 * subperiodRatio);
-        }
-        std::sort (candidates.begin(), candidates.end(), [] (const auto& a, const auto& b) { return a.score > b.score; });
-        if (! candidates.empty() && candidates.front().score > 0.0)
-        {
-            const auto leadingScore = candidates.front().score;
-            const auto leadingBpm = candidates.front().bpm;
-            for (auto& candidate : candidates)
-            {
-                const auto ratio = candidate.bpm / leadingBpm;
-                const auto nearestMultiple = static_cast<int> (std::round (ratio));
-                const bool isCloseHigherMultiple = nearestMultiple >= 2 && nearestMultiple <= 4
-                    && std::abs (ratio - nearestMultiple) < 0.08;
-                if (isCloseHigherMultiple && candidate.score >= leadingScore * 0.35)
-                    candidate.score = leadingScore * 1.001;
-            }
-            std::sort (candidates.begin(), candidates.end(), [] (const auto& a, const auto& b) { return a.score > b.score; });
-        }
-        for (const auto& candidate : candidates)
-        {
-            const bool distinct = std::none_of (result.tempoCandidates.begin(), result.tempoCandidates.end(), [&candidate] (const auto& kept) { return std::abs (kept.bpm - candidate.bpm) < 1.5; });
-            if (distinct) result.tempoCandidates.push_back (candidate);
-            if (result.tempoCandidates.size() == 3) break;
-        }
-        if (result.tempoCandidates.empty() || result.tempoCandidates.front().score <= 0.0)
-        {
-            result.warning = "No stable onset periodicity was found.";
+            result.clippingDetected = true;
+            result.warning = "Input is clipped beyond reliable beat analysis.";
             return result;
         }
+        result.usableAudio = true;
+
+        constexpr int fftOrder = 11;
+        constexpr int fftSize = 1 << fftOrder;
+        constexpr int hopSize = 512;
+        juce::dsp::FFT fft (fftOrder);
+        std::vector<float> fftData (static_cast<size_t> (fftSize * 2), 0.0f);
+        std::vector<float> window (static_cast<size_t> (fftSize));
+        for (int index = 0; index < fftSize; ++index)
+            window[static_cast<size_t> (index)] = static_cast<float> (0.5 - 0.5 * std::cos (2.0 * pi * index / (fftSize - 1)));
+
+        const auto frameCount = std::max (0, static_cast<int> ((samples.size() - fftSize) / hopSize) + 1);
+        if (frameCount < 12)
+        {
+            result.usableAudio = false;
+            result.warning = "Insufficient usable analysis frames.";
+            return result;
+        }
+
+        const auto hzPerBin = sampleRate / fftSize;
+        const auto lowBin = std::max (1, static_cast<int> (std::ceil (30.0 / hzPerBin)));
+        const auto highBin = std::min (fftSize / 2 - 1, static_cast<int> (std::floor (8000.0 / hzPerBin)));
+        std::array<double, 3> previousBands {};
+        std::vector<double> onset;
+        onset.reserve (static_cast<size_t> (frameCount));
+        std::vector<double> tuningAngles, tuningWeights;
+
+        for (int frame = 0; frame < frameCount; ++frame)
+        {
+            const auto start = frame * hopSize;
+            std::fill (fftData.begin(), fftData.end(), 0.0f);
+            for (int index = 0; index < fftSize; ++index)
+                fftData[static_cast<size_t> (index)] = samples[static_cast<size_t> (start + index)] * window[static_cast<size_t> (index)];
+            fft.performFrequencyOnlyForwardTransform (fftData.data());
+
+            std::array<double, 3> bandEnergy {};
+            for (int bin = lowBin; bin <= highBin; ++bin)
+            {
+                const auto hz = bin * hzPerBin;
+                const auto magnitude = static_cast<double> (fftData[static_cast<size_t> (bin)]);
+                const auto band = hz < 180.0 ? 0 : hz < 1400.0 ? 1 : 2;
+                bandEnergy[static_cast<size_t> (band)] += magnitude;
+            }
+            double flux = 0.0;
+            for (int band = 0; band < 3; ++band)
+            {
+                const auto change = std::max (0.0, bandEnergy[static_cast<size_t> (band)] - previousBands[static_cast<size_t> (band)]);
+                flux += change * (band == 0 ? 1.15 : band == 1 ? 1.0 : 0.85);
+                previousBands[static_cast<size_t> (band)] = bandEnergy[static_cast<size_t> (band)];
+            }
+            onset.push_back (std::log1p (flux));
+
+            if (frame % 4 != 0) continue;
+            const auto flatness = safeLogFlatness (fftData, lowBin, highBin);
+            const auto totalEnergy = std::accumulate (bandEnergy.begin(), bandEnergy.end(), 0.0);
+            if (flatness > 0.68 || totalEnergy < 1.0e-7) continue;
+
+            for (int bin = lowBin; bin <= highBin; ++bin)
+            {
+                const auto magnitude = static_cast<double> (fftData[static_cast<size_t> (bin)]);
+                if (magnitude <= 1.0e-8) continue;
+                const auto previous = bin > lowBin ? fftData[static_cast<size_t> (bin - 1)] : 0.0f;
+                const auto next = bin < highBin ? fftData[static_cast<size_t> (bin + 1)] : 0.0f;
+                if (magnitude < previous || magnitude < next) continue;
+                const auto hz = bin * hzPerBin;
+                const auto midi = midiFromFrequency (hz);
+                const auto nearest = std::round (midi);
+                const auto cents = (midi - nearest) * 100.0;
+                const auto weight = magnitude / std::sqrt (std::max (40.0, hz));
+                tuningAngles.push_back (2.0 * pi * cents / 100.0);
+                tuningWeights.push_back (weight);
+            }
+        }
+
+        const auto onsetMean = std::accumulate (onset.begin(), onset.end(), 0.0) / onset.size();
+        for (auto& value : onset) value = std::max (0.0, value - onsetMean * 0.40);
+        result.onsetCoverage = static_cast<double> (std::count_if (onset.begin(), onset.end(), [] (double value) { return value > 0.0; })) / onset.size();
+        if (result.onsetCoverage < 0.03)
+        {
+            result.warning = "No stable onset activity was found for tempo analysis.";
+            return result;
+        }
+
+        double tuningX = 0.0, tuningY = 0.0, tuningWeight = 0.0;
+        for (size_t index = 0; index < tuningAngles.size(); ++index)
+        {
+            tuningX += tuningWeights[index] * std::cos (tuningAngles[index]);
+            tuningY += tuningWeights[index] * std::sin (tuningAngles[index]);
+            tuningWeight += tuningWeights[index];
+        }
+        const auto tuningConcentration = std::sqrt (tuningX * tuningX + tuningY * tuningY) / (tuningWeight + 1.0e-15);
+        const auto tuningCents = std::atan2 (tuningY, tuningX) * 100.0 / (2.0 * pi);
+        result.tuningHz = 440.0 * std::pow (2.0, tuningCents / 1200.0);
+        result.tuningConfidence = clamp01 (tuningConcentration);
+        result.tuningAssumed = result.tuningConfidence < 0.45;
+        if (result.tuningAssumed) result.tuningHz = 440.0;
+
+        const auto onsetRate = sampleRate / hopSize;
+        const auto windowFrames = std::max (24, static_cast<int> (std::round (8.0 * onsetRate)));
+        const auto windowHop = std::max (1, windowFrames / 2);
+        std::vector<TempoWindow> windowTempi;
+        for (int start = 0; start + windowFrames <= static_cast<int> (onset.size()); start += windowHop)
+        {
+            const auto estimate = estimateTempoWindow (onset, start, start + windowFrames, onsetRate);
+            if (estimate.bpm >= 40.0 && estimate.bpm <= 240.0 && estimate.score > 0.04)
+                windowTempi.push_back (estimate);
+        }
+        if (windowTempi.empty())
+        {
+            result.warning = "No stable tempo candidate was found across analysis windows.";
+            return result;
+        }
+        result.usableTempoWindows = static_cast<int> (windowTempi.size());
+
+        struct Aggregate { double weightedBpm = 0.0; double score = 0.0; int count = 0; };
+        std::map<int, Aggregate> aggregate;
+        for (const auto& windowTempo : windowTempi)
+        {
+            const auto bucket = static_cast<int> (std::round (windowTempo.bpm * 4.0));
+            auto& value = aggregate[bucket];
+            value.weightedBpm += windowTempo.bpm * windowTempo.score;
+            value.score += windowTempo.score;
+            ++value.count;
+        }
+        for (const auto& [bucket, value] : aggregate)
+        {
+            juce::ignoreUnused (bucket);
+            if (value.score > 0.0)
+                result.tempoCandidates.push_back ({ value.weightedBpm / value.score, value.score / std::max (1, value.count) });
+        }
+        std::sort (result.tempoCandidates.begin(), result.tempoCandidates.end(), [] (const auto& a, const auto& b) { return a.score > b.score; });
+
+        // Resolve a repeated-pulse family only when the faster integer multiple has comparable evidence across windows.
+        if (! result.tempoCandidates.empty())
+        {
+            const auto leadingScore = result.tempoCandidates.front().score;
+            for (auto& candidate : result.tempoCandidates)
+            {
+                const auto ratio = candidate.bpm / result.tempoCandidates.front().bpm;
+                const auto multiple = static_cast<int> (std::round (ratio));
+                if (multiple >= 2 && multiple <= 4 && std::abs (ratio - multiple) < 0.035 && candidate.score >= leadingScore * 0.42)
+                    candidate.score = leadingScore * 1.002;
+            }
+            std::sort (result.tempoCandidates.begin(), result.tempoCandidates.end(), [] (const auto& a, const auto& b) { return a.score > b.score; });
+        }
+        if (result.tempoCandidates.empty())
+        {
+            result.warning = "No aggregate tempo candidate was found.";
+            return result;
+        }
+        if (result.tempoCandidates.size() > 3) result.tempoCandidates.resize (3);
         result.bpm = result.tempoCandidates.front().bpm;
         result.alternativeBpm = result.tempoCandidates.size() > 1 ? result.tempoCandidates[1].bpm : 0.0;
         result.halfTimeBpm = result.bpm * 0.5;
         result.doubleTimeBpm = result.bpm * 2.0;
-        const auto runnerUp = result.tempoCandidates.size() > 1 ? result.tempoCandidates[1].score : 0.0;
-        const auto margin = (result.tempoCandidates.front().score - runnerUp) / (result.tempoCandidates.front().score + 1.0e-12);
-        result.bpmConfidence = std::clamp (0.10 + 0.55 * margin + 0.35 * std::min (1.0, result.durationSeconds / 20.0), 0.0, 1.0);
-        result.bpmUncertain = result.bpmConfidence < 0.60;
+        const auto runnerScore = result.tempoCandidates.size() > 1 ? result.tempoCandidates[1].score : 0.0;
+        const auto margin = (result.tempoCandidates.front().score - runnerScore) / (result.tempoCandidates.front().score + 1.0e-15);
+        std::vector<double> bpmValues;
+        for (const auto& windowTempo : windowTempi) bpmValues.push_back (windowTempo.bpm);
+        const auto medianBpm = percentile (bpmValues, 0.5);
+        std::vector<double> deviations;
+        for (const auto bpm : bpmValues) deviations.push_back (std::abs (bpm - medianBpm));
+        result.tempoStability = clamp01 (1.0 - percentile (deviations, 0.5) / 3.0);
+        result.tempoAmbiguous = result.tempoCandidates.size() > 1 && (margin < 0.16 || std::abs (result.bpm / result.alternativeBpm - 2.0) < 0.05 || std::abs (result.bpm / result.alternativeBpm - 0.5) < 0.05);
+        result.bpmConfidence = clamp01 (0.38 * clamp01 (margin / 0.35) + 0.36 * result.tempoStability + 0.16 * std::min (1.0, result.usableTempoWindows / 3.0) + 0.10 * clamp01 (result.onsetCoverage / 0.20));
+        result.bpmUncertain = result.bpmConfidence < 0.60 || result.tempoAmbiguous;
+        result.tempoValid = ! result.bpmUncertain;
 
-        constexpr int tonalFrame = 2048;
-        constexpr int tonalHop = 1024;
-        const auto tonalFrames = static_cast<int> ((samples.size() - tonalFrame) / tonalHop);
-        std::array<double, 12> chroma {};
-        int usableTonalFrames = 0;
-        for (int frame = 0; frame < tonalFrames; ++frame)
+        // Re-run tonal frames at a modest rate using the selected tuning and soft, non-nearest chroma binning.
+        std::vector<std::array<double, 12>> tonalChromas;
+        for (int frame = 0; frame < frameCount; frame += 4)
         {
-            const auto start = frame * tonalHop;
-            double energy = 0.0;
-            for (int n = 0; n < tonalFrame; ++n)
-                energy += static_cast<double> (samples[static_cast<size_t> (start + n)]) * static_cast<double> (samples[static_cast<size_t> (start + n)]);
-            if (energy < 1.0e-6) continue;
-            ++usableTonalFrames;
-            for (int midi = 36; midi <= 84; ++midi)
+            const auto start = frame * hopSize;
+            std::fill (fftData.begin(), fftData.end(), 0.0f);
+            for (int index = 0; index < fftSize; ++index)
+                fftData[static_cast<size_t> (index)] = samples[static_cast<size_t> (start + index)] * window[static_cast<size_t> (index)];
+            fft.performFrequencyOnlyForwardTransform (fftData.data());
+            const auto flatness = safeLogFlatness (fftData, lowBin, highBin);
+            if (flatness > 0.68) continue;
+            std::array<double, 12> frameChroma {};
+            double frameWeight = 0.0;
+            for (int bin = lowBin; bin <= highBin; ++bin)
             {
-                const auto frequency = 440.0 * std::pow (2.0, (static_cast<double> (midi) - 69.0) / 12.0);
-                const auto power = std::max (0.0, goertzelPower (samples, start, tonalFrame, frequency, sampleRate));
-                chroma[static_cast<size_t> (midi % 12)] += std::sqrt (power) / (1.0 + 0.015 * std::abs (midi - 60));
+                const auto magnitude = static_cast<double> (fftData[static_cast<size_t> (bin)]);
+                const auto previous = bin > lowBin ? fftData[static_cast<size_t> (bin - 1)] : 0.0f;
+                const auto next = bin < highBin ? fftData[static_cast<size_t> (bin + 1)] : 0.0f;
+                if (magnitude <= 1.0e-8 || magnitude < previous || magnitude < next) continue;
+                const auto hz = bin * hzPerBin;
+                const auto weight = magnitude / std::sqrt (std::max (40.0, hz));
+                addSoftChroma (frameChroma, midiFromFrequency (hz, result.tuningHz), weight);
+                frameWeight += weight;
+            }
+            if (frameWeight > 1.0e-8)
+            {
+                for (auto& value : frameChroma) value /= frameWeight;
+                tonalChromas.push_back (frameChroma);
             }
         }
-        const auto totalChroma = std::accumulate (chroma.begin(), chroma.end(), 0.0);
-        if (usableTonalFrames < 4 || totalChroma < 1.0e-6)
+        result.usableTonalWindows = static_cast<int> (tonalChromas.size());
+        if (tonalChromas.size() < 6)
         {
-            result.usableAudio = true;
-            result.warning = "Tempo estimate available, but harmonic evidence is weak.";
+            result.harmonicContentSufficient = false;
+            result.keyValid = false;
+            result.keyUncertain = true;
+            result.warning = "Tempo estimate available, but harmonic content is insufficient for key detection.";
             return result;
         }
-        for (auto& value : chroma) value /= totalChroma;
-        result.chroma = chroma;
 
-        struct Candidate { int root; int mode; double score; };
-        std::vector<Candidate> keys;
-        for (int root = 0; root < 12; ++root)
+        for (const auto& frameChroma : tonalChromas)
+            for (int index = 0; index < 12; ++index)
+                result.chroma[static_cast<size_t> (index)] += frameChroma[static_cast<size_t> (index)];
+        for (auto& value : result.chroma) value /= tonalChromas.size();
+        const auto energy = std::accumulate (result.chroma.begin(), result.chroma.end(), 0.0);
+        if (energy <= 1.0e-10)
         {
-            keys.push_back ({ root, 0, profileCorrelation (chroma, majorProfile, root) });
-            keys.push_back ({ root, 1, profileCorrelation (chroma, minorProfile, root) });
+            result.harmonicContentSufficient = false;
+            result.warning = "No reliable harmonic pitch-class energy was found.";
+            return result;
         }
-        std::sort (keys.begin(), keys.end(), [] (const auto& a, const auto& b) { return a.score > b.score; });
-        for (int i = 0; i < 3; ++i) result.keyCandidates.push_back (keyName (keys[static_cast<size_t> (i)].root, keys[static_cast<size_t> (i)].mode));
-        result.keyRoot = keys.front().root;
-        result.keyMode = keys.front().mode;
-        result.keyConfidence = std::clamp ((keys.front().score - keys[1].score) / 0.30, 0.0, 1.0) * std::min (1.0, usableTonalFrames / 24.0);
-        result.modeConfidence = std::clamp (keys.front().score - keys[1].score + 0.5, 0.0, 1.0);
-        result.keyUncertain = result.keyConfidence < 0.60;
-        result.usableAudio = true;
-        if (result.keyUncertain) result.warning = "Key uncertainty: the leading key hypothesis is too close to alternatives.";
+        for (auto& value : result.chroma) value /= energy;
+        const auto keys = scoreKeys (result.chroma);
+        for (int index = 0; index < 3; ++index)
+        {
+            result.keyCandidates.push_back (keyName (keys[static_cast<size_t> (index)].root, keys[static_cast<size_t> (index)].mode));
+            result.keyCandidateScores.push_back ({ keys[static_cast<size_t> (index)].root, keys[static_cast<size_t> (index)].mode, keys[static_cast<size_t> (index)].score });
+        }
+        const auto clarity = keys.front().score - keys[1].score;
+        result.tonalClarity = clamp01 (clarity / 0.25);
+        int agreeingWindows = 0;
+        for (const auto& frameChroma : tonalChromas)
+        {
+            const auto local = scoreKeys (frameChroma);
+            if (local.front().root == keys.front().root && local.front().mode == keys.front().mode) ++agreeingWindows;
+        }
+        result.tonalWindowAgreement = static_cast<double> (agreeingWindows) / tonalChromas.size();
+        result.harmonicContentSufficient = result.tonalWindowAgreement >= 0.20;
+        result.relativeModeAmbiguous = keys.front().mode != keys[1].mode && clarity < 0.08;
+        result.keyConfidence = clamp01 (0.48 * result.tonalClarity + 0.32 * result.tonalWindowAgreement + 0.12 * std::min (1.0, tonalChromas.size() / 24.0) + 0.08 * result.tuningConfidence);
+        result.modeConfidence = clamp01 (clarity / 0.18);
+        result.keyUncertain = ! result.harmonicContentSufficient || result.keyConfidence < 0.62 || result.relativeModeAmbiguous;
+        result.keyValid = ! result.keyUncertain;
+        if (result.keyValid)
+        {
+            result.keyRoot = keys.front().root;
+            result.keyMode = keys.front().mode;
+        }
+        if (! result.keyValid)
+            result.warning = result.harmonicContentSufficient ? "Key uncertainty: competing tonal candidates or unstable harmonic windows." : "Insufficient harmonic content for key detection.";
         return result;
     }
 
@@ -302,7 +536,6 @@ namespace tunerite
             const auto midi = midiFromFrequency (sampleRate / bestLag);
             if (midi < 24.0 || midi > 108.0) continue;
             if (! std::isnan (previousMidi) && std::abs (midi - previousMidi) > 8.0) continue;
-
             ++voiced;
             voicedMidi.push_back (midi);
             result.midiContour.push_back (midi);

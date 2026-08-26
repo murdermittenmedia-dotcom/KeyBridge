@@ -12,26 +12,49 @@ namespace tunerite
         double score = 0.0;
     };
 
+    struct KeyCandidate
+    {
+        int root = -1;
+        int mode = -1; // 0 major, 1 minor
+        double score = 0.0;
+    };
+
     struct BeatAnalysisResult
     {
         bool usableAudio = false;
+        bool tempoValid = false;
+        bool keyValid = false;
         bool bpmUncertain = true;
         bool keyUncertain = true;
+        bool tempoAmbiguous = false;
+        bool relativeModeAmbiguous = false;
+        bool harmonicContentSufficient = false;
+        bool clippingDetected = false;
+        bool tuningAssumed = true;
         double bpm = 0.0;
         double alternativeBpm = 0.0;
         double halfTimeBpm = 0.0;
         double doubleTimeBpm = 0.0;
         double bpmConfidence = 0.0;
-        int keyRoot = 0;
-        int keyMode = 0; // 0 major, 1 minor
+        double tempoStability = 0.0;
+        double onsetCoverage = 0.0;
+        int usableTempoWindows = 0;
+        int keyRoot = -1;
+        int keyMode = -1; // 0 major, 1 minor
         double keyConfidence = 0.0;
         double modeConfidence = 0.0;
+        double tuningHz = 440.0;
+        double tuningConfidence = 0.0;
+        double tonalClarity = 0.0;
+        double tonalWindowAgreement = 0.0;
+        int usableTonalWindows = 0;
         double rms = 0.0;
         double peak = 0.0;
         double durationSeconds = 0.0;
         std::array<double, 12> chroma {};
         std::vector<TempoCandidate> tempoCandidates;
         std::vector<std::string> keyCandidates;
+        std::vector<KeyCandidate> keyCandidateScores;
         std::string warning;
     };
 

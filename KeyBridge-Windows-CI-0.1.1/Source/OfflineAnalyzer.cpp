@@ -23,6 +23,12 @@ namespace
         json << "{\n";
         json << "  \"mode\": \"beat\",\n";
         json << "  \"usable_audio\": " << (result.usableAudio ? "true" : "false") << ",\n";
+        json << "  \"tempo_valid\": " << (result.tempoValid ? "true" : "false") << ",\n";
+        json << "  \"key_valid\": " << (result.keyValid ? "true" : "false") << ",\n";
+        json << "  \"tempo_ambiguous\": " << (result.tempoAmbiguous ? "true" : "false") << ",\n";
+        json << "  \"relative_mode_ambiguous\": " << (result.relativeModeAmbiguous ? "true" : "false") << ",\n";
+        json << "  \"harmonic_content_sufficient\": " << (result.harmonicContentSufficient ? "true" : "false") << ",\n";
+        json << "  \"clipping_detected\": " << (result.clippingDetected ? "true" : "false") << ",\n";
         json << "  \"sample_rate\": " << sampleRate << ",\n";
         json << "  \"channels\": " << channels << ",\n";
         json << "  \"duration_seconds\": " << result.durationSeconds << ",\n";
@@ -33,9 +39,18 @@ namespace
         json << "  \"half_time_bpm\": " << result.halfTimeBpm << ",\n";
         json << "  \"double_time_bpm\": " << result.doubleTimeBpm << ",\n";
         json << "  \"bpm_confidence\": " << result.bpmConfidence << ",\n";
+        json << "  \"tempo_stability\": " << result.tempoStability << ",\n";
+        json << "  \"onset_coverage\": " << result.onsetCoverage << ",\n";
+        json << "  \"usable_tempo_windows\": " << result.usableTempoWindows << ",\n";
         json << "  \"key_root\": " << result.keyRoot << ",\n";
         json << "  \"key_mode\": " << result.keyMode << ",\n";
         json << "  \"key_confidence\": " << result.keyConfidence << ",\n";
+        json << "  \"tuning_hz\": " << result.tuningHz << ",\n";
+        json << "  \"tuning_confidence\": " << result.tuningConfidence << ",\n";
+        json << "  \"tuning_assumed\": " << (result.tuningAssumed ? "true" : "false") << ",\n";
+        json << "  \"tonal_clarity\": " << result.tonalClarity << ",\n";
+        json << "  \"tonal_window_agreement\": " << result.tonalWindowAgreement << ",\n";
+        json << "  \"usable_tonal_windows\": " << result.usableTonalWindows << ",\n";
         json << "  \"key_uncertain\": " << (result.keyUncertain ? "true" : "false") << ",\n";
         json << "  \"bpm_uncertain\": " << (result.bpmUncertain ? "true" : "false") << ",\n";
         json << "  \"warning\": \"" << jsonEscape (result.warning) << "\",\n";
@@ -51,6 +66,13 @@ namespace
         {
             json << "\"" << jsonEscape (result.keyCandidates[i]) << "\"";
             if (i + 1 < result.keyCandidates.size()) json << ",";
+        }
+        json << "],\n  \"key_candidate_scores\": [";
+        for (size_t i = 0; i < result.keyCandidateScores.size(); ++i)
+        {
+            const auto& candidate = result.keyCandidateScores[i];
+            json << "{\"root\":" << candidate.root << ",\"mode\":" << candidate.mode << ",\"score\":" << candidate.score << "}";
+            if (i + 1 < result.keyCandidateScores.size()) json << ",";
         }
         json << "]\n}\n";
         output.replaceWithText (json);

@@ -41,6 +41,8 @@ public:
     double getAlternativeBpm() const noexcept { return detectedAlternativeBpm.load (std::memory_order_relaxed); }
     int getDetectedKey() const noexcept { return detectedKey.load (std::memory_order_relaxed); }
     bool hasStableDetection() const noexcept { return hasStableDetectionFlag.load (std::memory_order_relaxed); }
+    bool hasValidDetectedTempo() const noexcept { return detectedTempoValid.load (std::memory_order_relaxed); }
+    bool hasValidDetectedKey() const noexcept { return detectedKeyValid.load (std::memory_order_relaxed); }
     int getDetectedMode() const noexcept { return detectedMode.load (std::memory_order_relaxed); }
     float getKeyConfidence() const noexcept { return keyConfidence.load (std::memory_order_relaxed); }
     float getBpmConfidence() const noexcept { return bpmConfidence.load (std::memory_order_relaxed); }
@@ -140,9 +142,11 @@ private:
     std::atomic<double> hostBpm { 0.0 };
     std::atomic<double> detectedBpm { 0.0 };
     std::atomic<double> detectedAlternativeBpm { 0.0 };
-    std::atomic<int> detectedKey { 0 };
-    std::atomic<int> detectedMode { 0 };
+    std::atomic<int> detectedKey { -1 };
+    std::atomic<int> detectedMode { -1 };
     std::atomic<bool> hasStableDetectionFlag { false };
+    std::atomic<bool> detectedTempoValid { false };
+    std::atomic<bool> detectedKeyValid { false };
     std::atomic<float> keyConfidence { 0.0f };
     std::atomic<float> bpmConfidence { 0.0f };
     std::atomic<float> inputPeak { 0.0f };
@@ -168,8 +172,8 @@ private:
 
     std::atomic<bool> savedBeatResult { false };
     std::atomic<bool> savedVocalResult { false };
-    std::atomic<int> savedBeatKey { 0 };
-    std::atomic<int> savedBeatMode { 0 };
+    std::atomic<int> savedBeatKey { -1 };
+    std::atomic<int> savedBeatMode { -1 };
     std::atomic<double> savedBeatBpm { 0.0 };
     std::atomic<double> savedBeatAlternativeBpm { 0.0 };
     std::atomic<float> savedBeatKeyConfidence { 0.0f };

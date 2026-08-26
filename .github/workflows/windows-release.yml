@@ -43,10 +43,21 @@ jobs:
       - name: Build and test shared analysis core
         shell: pwsh
         run: |
+          $ErrorActionPreference = "Stop"
           cmake --build build-msvc --config Release --target TuneriteOfflineAnalyzer TuneriteAnalysisCoreSyntheticTests --parallel
           if ($LASTEXITCODE -ne 0) { throw "Offline analyzer or synthetic test build failed with exit code $LASTEXITCODE" }
-          ctest --test-dir build-msvc -C Release --output-on-failure
-          if ($LASTEXITCODE -ne 0) { throw "Shared AnalysisCore synthetic regression test failed" }
+          $reports = [System.IO.Path]::GetFullPath((Join-Path $PWD "build-msvc/offline-reports"))
+          New-Item -ItemType Directory -Force -Path $reports | Out-Null
+          $test = Get-ChildItem "build-msvc" -Recurse -File -Filter "TuneriteAnalysisCoreSyntheticTests.exe" | Select-Object -First 1
+          if ($null -eq $test) { throw "Shared AnalysisCore synthetic test executable was not produced" }
+          Push-Location $reports
+          try {
+            & $test.FullName
+            $testExit = $LASTEXITCODE
+          } finally {
+            Pop-Location
+          }
+          if ($testExit -ne 0) { throw "Shared AnalysisCore synthetic regression test failed with exit code $testExit; inspect build-msvc/offline-reports/analysis-core-synthetic-results.json" }
 
       - name: Validate offline WAV analyzer reports
         shell: pwsh
@@ -81,10 +92,8 @@ jobs:
             Assert-ReportExists $beatReportPath "beat"
             $beat = Get-Content -LiteralPath $beatReportPath -Raw | ConvertFrom-Json
             Write-Host "Beat JSON: BPM=$($beat.detected_bpm), key_root=$($beat.key_root), key_mode=$($beat.key_mode), key_confidence=$($beat.key_confidence), bpm_confidence=$($beat.bpm_confidence), key_uncertain=$($beat.key_uncertain)"
-            if ([math]::Abs($beat.detected_bpm - 120.0) -gt 2.0) { throw "Offline beat report BPM was $($beat.detected_bpm), expected 120 +/- 2" }
-            $expectedKeyFamily = (($beat.key_root -eq 0 -and $beat.key_mode -eq 0) -or ($beat.key_root -eq 4 -and $beat.key_mode -eq 1))
-            if (! $expectedKeyFamily) { throw "C-E-G beat key was root=$($beat.key_root), mode=$($beat.key_mode); expected C Major or E Minor family" }
-            if ($beat.key_uncertain -ne $true) { throw "C-E-G relative-mode fixture must remain explicitly key-uncertain" }
+            if ([math]::Abs($beat.detected_bpm - 120.0) -gt 0.25) { throw "Offline beat report BPM was $($beat.detected_bpm), expected 120 +/- 0.25" }
+            if ($beat.key_valid -ne $false -or $beat.key_uncertain -ne $true) { throw "C-E-G fixture must remain key-unknown/uncertain because one triad does not establish a unique key" }
 
             $vocalReportPath = [System.IO.Path]::GetFullPath((Join-Path $reportsDirectory "a3_220hz.json"))
             Write-Host "Vocal report absolute path: $vocalReportPath"

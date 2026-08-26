@@ -81,6 +81,10 @@ add_executable(TuneriteAnalysisCoreSyntheticTests
 target_compile_features(TuneriteAnalysisCoreSyntheticTests PRIVATE cxx_std_17)
 
 target_include_directories(TuneriteAnalysisCoreSyntheticTests PRIVATE Source)
+target_link_libraries(TuneriteAnalysisCoreSyntheticTests PRIVATE
+    juce::juce_dsp
+    juce::juce_audio_basics
+)
 
 if (MSVC)
     target_compile_options(TuneriteAnalysisCoreSyntheticTests PRIVATE /W4 /permissive- /EHsc)

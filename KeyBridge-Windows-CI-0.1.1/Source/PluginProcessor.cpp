@@ -77,6 +77,8 @@ void KeyBridgeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
     float leftPeak = 0.0f;
     float rightPeak = 0.0f;
     double energy = 0.0;
+    double leftEnergy = 0.0;
+    double rightEnergy = 0.0;
     for (int i = 0; i < buffer.getNumSamples(); ++i)
     {
         const auto mono = 0.5f * (left[i] + right[i]);
@@ -84,8 +86,15 @@ void KeyBridgeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
         rightPeak = juce::jmax (rightPeak, std::abs (right[i]));
         blockPeak = juce::jmax (blockPeak, std::abs (mono));
         energy += static_cast<double> (mono) * static_cast<double> (mono);
+        leftEnergy += static_cast<double> (left[i]) * left[i];
+        rightEnergy += static_cast<double> (right[i]) * right[i];
     }
     const auto rms = static_cast<float> (std::sqrt (energy / static_cast<double> (buffer.getNumSamples())));
+    const auto strongestStereoEnergy = std::max (leftEnergy, rightEnergy);
+    const bool destructiveStereoCancellation = buffer.getNumChannels() > 1
+        && strongestStereoEnergy > 1.0e-12
+        && energy < strongestStereoEnergy * 0.18;
+    const bool captureLeftOnly = destructiveStereoCancellation && leftEnergy >= rightEnergy;
     inputPeak.store (0.85f * inputPeak.load (std::memory_order_relaxed) + 0.15f * blockPeak, std::memory_order_relaxed);
     leftInputPeak.store (0.85f * leftInputPeak.load (std::memory_order_relaxed) + 0.15f * leftPeak, std::memory_order_relaxed);
     rightInputPeak.store (0.85f * rightInputPeak.load (std::memory_order_relaxed) + 0.15f * rightPeak, std::memory_order_relaxed);
@@ -119,7 +128,9 @@ void KeyBridgeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
     const auto available = juce::jmax (0, capacity - write);
     const auto toCopy = juce::jmin (available, buffer.getNumSamples());
     for (int i = 0; i < toCopy; ++i)
-        destination[static_cast<size_t> (write + i)] = 0.5f * (left[i] + right[i]);
+        destination[static_cast<size_t> (write + i)] = destructiveStereoCancellation
+            ? (captureLeftOnly ? left[i] : right[i])
+            : 0.5f * (left[i] + right[i]);
     write += toCopy;
     capturedSamples.store (write, std::memory_order_relaxed);
     analysisFrames.fetch_add (1, std::memory_order_relaxed);
@@ -189,7 +200,9 @@ void KeyBridgeAudioProcessor::publishBeatResult (const tunerite::BeatAnalysisRes
     detectedMode.store (result.keyMode, std::memory_order_relaxed);
     bpmConfidence.store (static_cast<float> (result.bpmConfidence), std::memory_order_relaxed);
     keyConfidence.store (static_cast<float> (result.keyConfidence), std::memory_order_relaxed);
-    hasStableDetectionFlag.store (result.usableAudio && ! result.keyUncertain && ! result.bpmUncertain, std::memory_order_release);
+    detectedTempoValid.store (result.tempoValid, std::memory_order_relaxed);
+    detectedKeyValid.store (result.keyValid, std::memory_order_relaxed);
+    hasStableDetectionFlag.store (result.usableAudio && result.tempoValid && result.keyValid, std::memory_order_release);
 }
 
 void KeyBridgeAudioProcessor::publishVocalResult (const tunerite::VocalAnalysisResult& result, std::uint64_t generation)
@@ -212,9 +225,11 @@ void KeyBridgeAudioProcessor::resetLiveResults() noexcept
 {
     detectedBpm.store (0.0, std::memory_order_relaxed);
     detectedAlternativeBpm.store (0.0, std::memory_order_relaxed);
-    detectedKey.store (0, std::memory_order_relaxed);
-    detectedMode.store (0, std::memory_order_relaxed);
+    detectedKey.store (-1, std::memory_order_relaxed);
+    detectedMode.store (-1, std::memory_order_relaxed);
     hasStableDetectionFlag.store (false, std::memory_order_relaxed);
+    detectedTempoValid.store (false, std::memory_order_relaxed);
+    detectedKeyValid.store (false, std::memory_order_relaxed);
     keyConfidence.store (0.0f, std::memory_order_relaxed);
     bpmConfidence.store (0.0f, std::memory_order_relaxed);
     inputPeak.store (0.0f, std::memory_order_relaxed);
