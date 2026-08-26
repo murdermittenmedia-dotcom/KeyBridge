@@ -193,6 +193,46 @@ namespace
     {
         TempoWindow result;
         if (samples.size() < static_cast<size_t> (sampleRate * 4.0)) return result;
+
+        std::vector<double> rawDerivative;
+        rawDerivative.reserve (samples.size() - 1);
+        for (size_t index = 1; index < samples.size(); ++index)
+            rawDerivative.push_back (std::abs (static_cast<double> (samples[index]) - samples[index - 1]));
+        const auto rawThreshold = percentile (rawDerivative, 0.9999);
+        const auto rawMinimumDistance = std::max (1, static_cast<int> (std::round (sampleRate * 0.12)));
+        std::vector<int> rawPeaks;
+        for (int index = 1; index + 1 < static_cast<int> (rawDerivative.size()); ++index)
+        {
+            if (rawDerivative[static_cast<size_t> (index)] < rawThreshold
+                || rawDerivative[static_cast<size_t> (index)] < rawDerivative[static_cast<size_t> (index - 1)]
+                || rawDerivative[static_cast<size_t> (index)] < rawDerivative[static_cast<size_t> (index + 1)]) continue;
+            if (! rawPeaks.empty() && index - rawPeaks.back() < rawMinimumDistance)
+            {
+                if (rawDerivative[static_cast<size_t> (index)] > rawDerivative[static_cast<size_t> (rawPeaks.back())]) rawPeaks.back() = index;
+                continue;
+            }
+            rawPeaks.push_back (index);
+        }
+        if (rawPeaks.size() >= 6)
+        {
+            std::vector<double> rawIntervals;
+            for (size_t index = 1; index < rawPeaks.size(); ++index)
+            {
+                const auto interval = rawPeaks[index] - rawPeaks[index - 1];
+                const auto bpm = 60.0 * sampleRate / interval;
+                if (bpm >= 40.0 && bpm <= 240.0) rawIntervals.push_back (interval);
+            }
+            if (rawIntervals.size() >= 5)
+            {
+                const auto medianInterval = percentile (rawIntervals, 0.5);
+                std::vector<double> deviations;
+                for (const auto interval : rawIntervals) deviations.push_back (std::abs (interval - medianInterval));
+                const auto stability = clamp01 (1.0 - percentile (deviations, 0.5) / std::max (1.0, medianInterval * 0.01));
+                if (stability >= 0.85)
+                    return { 60.0 * sampleRate / medianInterval, 0.78 + 0.22 * stability, stability };
+            }
+        }
+
         constexpr int envelopeFrame = 256;
         constexpr int envelopeHop = 128;
         std::vector<double> attackEnergy;
