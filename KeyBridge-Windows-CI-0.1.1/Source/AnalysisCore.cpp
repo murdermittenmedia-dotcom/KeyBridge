@@ -110,6 +110,7 @@ namespace
             autocorrelation[static_cast<size_t> (lag)] = sum / std::sqrt (leftEnergy * rightEnergy + 1.0e-15);
         }
 
+        std::vector<TempoWindow> localCandidates;
         for (int lag = minLag + 1; lag < maxLag - 1; ++lag)
         {
             const auto value = autocorrelation[static_cast<size_t> (lag)];
@@ -131,8 +132,22 @@ namespace
             }
             const auto phaseScore = bestPhaseEnergy / (totalPhaseEnergy + 1.0e-15);
             const auto score = value * (0.78 + 0.22 * std::min (1.0, phaseScore * roundedLag));
+            const TempoWindow candidate { 60.0 * onsetRate / refinedLag, score, phaseScore };
+            localCandidates.push_back (candidate);
             if (score > best.score)
-                best = { 60.0 * onsetRate / refinedLag, score, phaseScore };
+                best = candidate;
+        }
+        // A clearly supported shorter integer subperiod is the beat pulse, not merely its repeated bar period.
+        if (best.bpm > 0.0)
+        {
+            for (const auto& candidate : localCandidates)
+            {
+                const auto ratio = candidate.bpm / best.bpm;
+                const auto multiple = static_cast<int> (std::round (ratio));
+                if (multiple >= 2 && multiple <= 4 && std::abs (ratio - multiple) < 0.04
+                    && candidate.score >= best.score * 0.38 && candidate.phase >= 0.12)
+                    best = candidate;
+            }
         }
 
         // Local onset intervals resolve period multiples that remain equally periodic in autocorrelation.
