@@ -73,7 +73,13 @@ KeyBridgeAudioProcessorEditor::KeyBridgeAudioProcessorEditor (KeyBridgeAudioProc
     beatModeButton.onClick = [this] { setMode (0); };
     vocalModeButton.onClick = [this] { setMode (1); };
     reviewModeButton.onClick = [this] { setMode (2); };
-    analyzeButton.onClick = [this] { processor.startFreshAnalysis(); };
+    analyzeButton.onClick = [this]
+    {
+        if (processor.getAnalysisMode() != 2 && processor.getCaptureState() == 2)
+            processor.finishCapture();
+        else
+            processor.startFreshAnalysis();
+    };
     stopButton.onClick = [this] { processor.finishCapture(); };
     saveButton.onClick = [this]
     {
@@ -225,6 +231,7 @@ void KeyBridgeAudioProcessorEditor::setMode (int mode)
     beatModeButton.setToggleState (mode == 0, juce::dontSendNotification);
     vocalModeButton.setToggleState (mode == 1, juce::dontSendNotification);
     reviewModeButton.setToggleState (mode == 2, juce::dontSendNotification);
+    resized();
     refreshView();
 }
 
@@ -285,6 +292,23 @@ void KeyBridgeAudioProcessorEditor::paint (juce::Graphics& g)
     g.fillRect (0, 0, w, 4);
     g.setColour (juce::Colours::black.withAlpha (0.24f));
     g.fillRect (0, 74, w, 1);
+
+    if (processor.getAnalysisMode() == 0)
+    {
+        const auto margin = 18;
+        const auto answerY = 126;
+        const auto gap = 18;
+        const auto answerWidth = (w - margin * 2 - gap) / 2;
+        const auto answerHeight = std::max (210, h - 330);
+        for (const auto& card : { juce::Rectangle<int> (margin, answerY, answerWidth, answerHeight), juce::Rectangle<int> (margin + answerWidth + gap, answerY, answerWidth, answerHeight) })
+        {
+            g.setColour (panel);
+            g.fillRoundedRectangle (card.toFloat(), 10.0f);
+            g.setColour (accent.withAlpha (0.55f));
+            g.drawRoundedRectangle (card.toFloat().reduced (0.5f), 10.0f, 1.0f);
+        }
+        return;
+    }
 
     const auto margin = 18;
     const auto top = 92;
@@ -359,7 +383,41 @@ void KeyBridgeAudioProcessorEditor::paint (juce::Graphics& g)
 void KeyBridgeAudioProcessorEditor::resized()
 {
     const auto w = getWidth();
+    const auto h = getHeight();
     const auto margin = 18;
+
+    if (processor.getAnalysisMode() == 0)
+    {
+        title.setBounds (margin, 16, 220, 32);
+        subtitle.setBounds (margin, 47, 250, 17);
+        beatModeButton.setBounds (280, 18, 104, 32);
+        vocalModeButton.setBounds (388, 18, 110, 32);
+        reviewModeButton.setBounds (502, 18, 90, 32);
+        appearanceButton.setVisible (false);
+        analysisStatus.setBounds (margin, 77, w - margin * 2, 20);
+        analysisStatus.setJustificationType (juce::Justification::centredLeft);
+
+        const auto answerY = 126;
+        const auto gap = 18;
+        const auto answerWidth = (w - margin * 2 - gap) / 2;
+        const auto answerHeight = std::max (210, h - 330);
+        bpmTitle.setBounds (margin + 28, answerY + 28, answerWidth - 56, 22);
+        bpmValue.setBounds (margin + 28, answerY + 72, answerWidth - 56, 76);
+        keyTitle.setBounds (margin + answerWidth + gap + 28, answerY + 28, answerWidth - 56, 22);
+        keyValue.setBounds (margin + answerWidth + gap + 28, answerY + 72, answerWidth - 56, 76);
+        bpmStatus.setBounds (margin, answerY + answerHeight + 22, w - margin * 2, 22);
+        bpmStatus.setJustificationType (juce::Justification::centred);
+        workflowLabel.setVisible (false);
+        instructionLabel.setBounds (margin, answerY + answerHeight + 54, w - margin * 2, 20);
+        instructionLabel.setJustificationType (juce::Justification::centred);
+        analyzeButton.setBounds (w / 2 - 178, answerY + answerHeight + 92, 230, 38);
+        clearButton.setBounds (w / 2 + 64, answerY + answerHeight + 92, 118, 38);
+        resetButton.setVisible (false);
+        return;
+    }
+
+    appearanceButton.setVisible (true);
+    resetButton.setVisible (true);
     const auto top = 92;
     const auto gap = 12;
     const auto reviewWidth = static_cast<int> (w * 0.29f);
@@ -478,6 +536,44 @@ void KeyBridgeAudioProcessorEditor::refreshView()
     analysisStatus.setText (juce::String ("STATUS: ") + status, juce::dontSendNotification);
     analysisStatus.setColour (juce::Label::textColourId, statusColour (status));
     projectBpmLabel.setText ("Project BPM: " + (processor.getHostBpm() > 0.0 ? juce::String (processor.getHostBpm(), 2) : "--"), juce::dontSendNotification);
+
+    if (mode == 0)
+    {
+        for (auto* component : { static_cast<juce::Component*> (&inputStatus), static_cast<juce::Component*> (&projectBpmLabel), static_cast<juce::Component*> (&meterCaption), static_cast<juce::Component*> (&bpmDetail), static_cast<juce::Component*> (&keyDetail), static_cast<juce::Component*> (&keyNotes), static_cast<juce::Component*> (&keyStatus), static_cast<juce::Component*> (&vocalTitle), static_cast<juce::Component*> (&vocalValue), static_cast<juce::Component*> (&vocalDetail), static_cast<juce::Component*> (&vocalStatus), static_cast<juce::Component*> (&recommendationTitle), static_cast<juce::Component*> (&recommendationValue), static_cast<juce::Component*> (&recommendationDetail), static_cast<juce::Component*> (&recommendationStatus), static_cast<juce::Component*> (&stopButton), static_cast<juce::Component*> (&saveButton), static_cast<juce::Component*> (&copyBpmButton), static_cast<juce::Component*> (&copyReportButton), static_cast<juce::Component*> (&copySettingsButton), static_cast<juce::Component*> (&visualStatusLabel), static_cast<juce::Component*> (&profileBox), static_cast<juce::Component*> (&genreBox), static_cast<juce::Component*> (&deliveryBox), static_cast<juce::Component*> (&vibeBox), static_cast<juce::Component*> (&themeBox), static_cast<juce::Component*> (&colourTargetBox), static_cast<juce::Component*> (&opacitySlider), static_cast<juce::Component*> (&glowSlider), static_cast<juce::Component*> (&compactLayoutToggle), static_cast<juce::Component*> (&colourSelector), static_cast<juce::Component*> (&appearanceTitle), static_cast<juce::Component*> (&themeCaption), static_cast<juce::Component*> (&colourTargetCaption), static_cast<juce::Component*> (&opacityCaption), static_cast<juce::Component*> (&glowCaption), static_cast<juce::Component*> (&layoutCaption), static_cast<juce::Component*> (&closeAppearanceButton), static_cast<juce::Component*> (&saveThemeButton), static_cast<juce::Component*> (&resetThemeButton) })
+            component->setVisible (false);
+
+        const auto captureState = processor.getCaptureState();
+        const auto analyzing = captureState == 1 || captureState == 2 || captureState == 3;
+        const auto savedTempo = processor.hasSavedBeatTempo();
+        const auto savedKey = processor.hasSavedBeatKey();
+        bpmTitle.setText ("BPM", juce::dontSendNotification);
+        keyTitle.setText ("KEY / SCALE", juce::dontSendNotification);
+
+        if (analyzing)
+        {
+            bpmValue.setText ("ANALYZING...", juce::dontSendNotification);
+            keyValue.setText ("ANALYZING...", juce::dontSendNotification);
+            bpmStatus.setText (captureState == 3 ? "STATUS: ANALYZING BEAT" : "STATUS: LISTENING TO BEAT", juce::dontSendNotification);
+        }
+        else
+        {
+            bpmValue.setText (savedTempo ? juce::String (processor.getSavedBeatBpm(), 1) : "--", juce::dontSendNotification);
+            keyValue.setText (savedKey ? keyName (processor.getSavedBeatKey(), processor.getSavedBeatMode()) : "UNCERTAIN", juce::dontSendNotification);
+            const auto outcome = processor.getBeatOutcomeState();
+            bpmStatus.setText (outcome == 1 ? "STATUS: BEAT SAVED" : outcome == 2 ? "STATUS: NOT ENOUGH USABLE AUDIO" : "STATUS: NOT ANALYZED", juce::dontSendNotification);
+        }
+        bpmStatus.setColour (juce::Label::textColourId, statusColour (bpmStatus.getText()));
+        instructionLabel.setText ("Mute vocals and play the beat into this mixer track.", juce::dontSendNotification);
+        analyzeButton.setButtonText (captureState == 2 ? "STOP AND SAVE" : "ANALYZE BEAT");
+        analyzeButton.setEnabled (captureState != 3);
+        clearButton.setButtonText ("CLEAR");
+        clearButton.setEnabled (processor.hasSavedBeatResult() || processor.getBeatOutcomeState() != 0);
+        bpmDetail.setVisible (false);
+        return;
+    }
+
+    for (auto* component : { static_cast<juce::Component*> (&inputStatus), static_cast<juce::Component*> (&projectBpmLabel), static_cast<juce::Component*> (&meterCaption), static_cast<juce::Component*> (&bpmDetail), static_cast<juce::Component*> (&keyDetail), static_cast<juce::Component*> (&keyNotes), static_cast<juce::Component*> (&keyStatus), static_cast<juce::Component*> (&vocalTitle), static_cast<juce::Component*> (&vocalValue), static_cast<juce::Component*> (&vocalDetail), static_cast<juce::Component*> (&vocalStatus), static_cast<juce::Component*> (&recommendationTitle), static_cast<juce::Component*> (&recommendationValue), static_cast<juce::Component*> (&recommendationDetail), static_cast<juce::Component*> (&recommendationStatus), static_cast<juce::Component*> (&stopButton), static_cast<juce::Component*> (&saveButton), static_cast<juce::Component*> (&copyBpmButton), static_cast<juce::Component*> (&copyReportButton), static_cast<juce::Component*> (&copySettingsButton), static_cast<juce::Component*> (&visualStatusLabel) })
+        component->setVisible (true);
 
     const auto bpm = beatSaved ? processor.getSavedBeatBpm() : processor.getDetectedBpm();
     const auto alternative = beatSaved ? processor.getSavedBeatAlternativeBpm() : processor.getAlternativeBpm();

@@ -75,8 +75,12 @@ public:
     void resetAllResults() noexcept;
 
     bool hasSavedBeatResult() const noexcept { return savedBeatResult.load (std::memory_order_relaxed); }
+    // 0 = not analyzed, 1 = saved at least one valid beat answer, 2 = insufficient/unusable audio.
+    int getBeatOutcomeState() const noexcept { return beatOutcomeState.load (std::memory_order_relaxed); }
+    bool hasSavedBeatTempo() const noexcept { return savedBeatTempoValid.load (std::memory_order_relaxed); }
+    bool hasSavedBeatKey() const noexcept { return savedBeatKeyValid.load (std::memory_order_relaxed); }
     bool hasSavedVocalResult() const noexcept { return savedVocalResult.load (std::memory_order_relaxed); }
-    bool hasValidBeatResult() const noexcept { return hasSavedBeatResult(); }
+    bool hasValidBeatResult() const noexcept { return hasSavedBeatTempo() && hasSavedBeatKey(); }
     bool hasValidVocalResult() const noexcept { return hasSavedVocalResult(); }
     int getSavedBeatKey() const noexcept { return savedBeatKey.load (std::memory_order_relaxed); }
     int getSavedBeatMode() const noexcept { return savedBeatMode.load (std::memory_order_relaxed); }
@@ -187,6 +191,9 @@ private:
     std::atomic<bool> vocalMelodic { false };
 
     std::atomic<bool> savedBeatResult { false };
+    std::atomic<int> beatOutcomeState { 0 };
+    std::atomic<bool> savedBeatTempoValid { false };
+    std::atomic<bool> savedBeatKeyValid { false };
     std::atomic<bool> savedVocalResult { false };
     std::atomic<int> savedBeatKey { -1 };
     std::atomic<int> savedBeatMode { -1 };

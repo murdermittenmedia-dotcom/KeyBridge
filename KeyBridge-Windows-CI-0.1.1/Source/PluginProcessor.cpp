@@ -229,6 +229,26 @@ void KeyBridgeAudioProcessor::publishBeatResult (const tunerite::BeatAnalysisRes
     detectedTempoValid.store (result.tempoValid, std::memory_order_relaxed);
     detectedKeyValid.store (result.keyValid, std::memory_order_relaxed);
     hasStableDetectionFlag.store (result.usableAudio && result.tempoValid && result.keyValid, std::memory_order_release);
+
+    // Beat Only is an answer workflow: retain each independently valid audio-derived result.
+    if (result.usableAudio && result.tempoValid)
+    {
+        savedBeatBpm.store (result.bpm, std::memory_order_relaxed);
+        savedBeatAlternativeBpm.store (result.alternativeBpm, std::memory_order_relaxed);
+        savedBeatBpmConfidence.store (static_cast<float> (result.bpmConfidence), std::memory_order_relaxed);
+        savedBeatTempoValid.store (true, std::memory_order_release);
+    }
+    if (result.usableAudio && result.keyValid)
+    {
+        savedBeatKey.store (result.keyRoot, std::memory_order_relaxed);
+        savedBeatMode.store (result.keyMode, std::memory_order_relaxed);
+        savedBeatKeyConfidence.store (static_cast<float> (result.keyConfidence), std::memory_order_relaxed);
+        savedBeatKeyValid.store (true, std::memory_order_release);
+    }
+    const auto savedAnyBeatAnswer = savedBeatTempoValid.load (std::memory_order_acquire)
+                                 || savedBeatKeyValid.load (std::memory_order_acquire);
+    savedBeatResult.store (savedAnyBeatAnswer, std::memory_order_release);
+    beatOutcomeState.store (savedAnyBeatAnswer ? 1 : 2, std::memory_order_release);
 }
 
 void KeyBridgeAudioProcessor::publishVocalResult (const tunerite::VocalAnalysisResult& result, std::uint64_t generation)
@@ -288,6 +308,16 @@ void KeyBridgeAudioProcessor::startFreshAnalysis() noexcept
         analysisEnabled.store (true, std::memory_order_relaxed);
         analysisGeneration.fetch_add (1, std::memory_order_acq_rel);
         finishCaptureRequested.store (false, std::memory_order_release);
+        if (analysisMode.load (std::memory_order_relaxed) == 0)
+        {
+            savedBeatResult.store (false, std::memory_order_release);
+            savedBeatTempoValid.store (false, std::memory_order_release);
+            savedBeatKeyValid.store (false, std::memory_order_release);
+            savedBeatBpm.store (0.0, std::memory_order_relaxed);
+            savedBeatKey.store (-1, std::memory_order_relaxed);
+            savedBeatMode.store (-1, std::memory_order_relaxed);
+        }
+        beatOutcomeState.store (0, std::memory_order_release);
         captureState.store (armed, std::memory_order_release);
         captureRequested.store (true, std::memory_order_release);
     }
@@ -320,6 +350,8 @@ void KeyBridgeAudioProcessor::saveBeatResult() noexcept
         savedBeatAlternativeBpm.store (detectedAlternativeBpm.load (std::memory_order_relaxed), std::memory_order_relaxed);
         savedBeatKeyConfidence.store (keyConfidence.load (std::memory_order_relaxed), std::memory_order_relaxed);
         savedBeatBpmConfidence.store (bpmConfidence.load (std::memory_order_relaxed), std::memory_order_relaxed);
+        savedBeatTempoValid.store (true, std::memory_order_release);
+        savedBeatKeyValid.store (true, std::memory_order_release);
         savedBeatResult.store (true, std::memory_order_release);
     }
 }
@@ -344,6 +376,12 @@ void KeyBridgeAudioProcessor::saveVocalResult() noexcept
 void KeyBridgeAudioProcessor::clearBeatResult() noexcept
 {
     savedBeatResult.store (false, std::memory_order_release);
+    savedBeatTempoValid.store (false, std::memory_order_release);
+    savedBeatKeyValid.store (false, std::memory_order_release);
+    savedBeatBpm.store (0.0, std::memory_order_relaxed);
+    beatOutcomeState.store (0, std::memory_order_release);
+    savedBeatKey.store (-1, std::memory_order_relaxed);
+    savedBeatMode.store (-1, std::memory_order_relaxed);
 }
 
 void KeyBridgeAudioProcessor::clearVocalResult() noexcept
@@ -354,6 +392,9 @@ void KeyBridgeAudioProcessor::clearVocalResult() noexcept
 void KeyBridgeAudioProcessor::resetAllResults() noexcept
 {
     savedBeatResult.store (false, std::memory_order_release);
+    savedBeatTempoValid.store (false, std::memory_order_release);
+    savedBeatKeyValid.store (false, std::memory_order_release);
+    beatOutcomeState.store (0, std::memory_order_release);
     savedVocalResult.store (false, std::memory_order_release);
     analysisGeneration.fetch_add (1, std::memory_order_acq_rel);
     captureActive.store (false, std::memory_order_release);
