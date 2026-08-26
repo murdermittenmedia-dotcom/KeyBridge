@@ -170,6 +170,30 @@ namespace
         chroma[static_cast<size_t> (positiveMod (lower, 12))] += weight * leftWeight * leftWeight;
         chroma[static_cast<size_t> (positiveMod (lower + 1, 12))] += weight * rightWeight * rightWeight;
     }
+
+    double interpolatedPeakHz (const std::vector<float>& spectrum, int bin, double hzPerBin)
+    {
+        const auto previous = std::max (1.0e-12, static_cast<double> (spectrum[static_cast<size_t> (bin - 1)]));
+        const auto centre = std::max (1.0e-12, static_cast<double> (spectrum[static_cast<size_t> (bin)]));
+        const auto next = std::max (1.0e-12, static_cast<double> (spectrum[static_cast<size_t> (bin + 1)]));
+        const auto logPrevious = std::log (previous);
+        const auto logCentre = std::log (centre);
+        const auto logNext = std::log (next);
+        const auto offset = std::clamp (0.5 * (logPrevious - logNext) / (logPrevious - 2.0 * logCentre + logNext + 1.0e-15), -0.5, 0.5);
+        return (bin + offset) * hzPerBin;
+    }
+
+    double chromaCosine (const std::array<double, 12>& left, const std::array<double, 12>& right)
+    {
+        double dot = 0.0, leftEnergy = 0.0, rightEnergy = 0.0;
+        for (int index = 0; index < 12; ++index)
+        {
+            dot += left[static_cast<size_t> (index)] * right[static_cast<size_t> (index)];
+            leftEnergy += left[static_cast<size_t> (index)] * left[static_cast<size_t> (index)];
+            rightEnergy += right[static_cast<size_t> (index)] * right[static_cast<size_t> (index)];
+        }
+        return dot / std::sqrt (leftEnergy * rightEnergy + 1.0e-15);
+    }
 }
 
 namespace tunerite
@@ -226,7 +250,7 @@ namespace tunerite
 
         constexpr int fftOrder = 11;
         constexpr int fftSize = 1 << fftOrder;
-        constexpr int hopSize = 512;
+        constexpr int hopSize = 256;
         juce::dsp::FFT fft (fftOrder);
         std::vector<float> fftData (static_cast<size_t> (fftSize * 2), 0.0f);
         std::vector<float> window (static_cast<size_t> (fftSize));
@@ -286,7 +310,7 @@ namespace tunerite
                 const auto previous = bin > lowBin ? fftData[static_cast<size_t> (bin - 1)] : 0.0f;
                 const auto next = bin < highBin ? fftData[static_cast<size_t> (bin + 1)] : 0.0f;
                 if (magnitude < previous || magnitude < next) continue;
-                const auto hz = bin * hzPerBin;
+                const auto hz = interpolatedPeakHz (fftData, bin, hzPerBin);
                 const auto midi = midiFromFrequency (hz);
                 const auto nearest = std::round (midi);
                 const auto cents = (midi - nearest) * 100.0;
@@ -409,7 +433,7 @@ namespace tunerite
                 const auto previous = bin > lowBin ? fftData[static_cast<size_t> (bin - 1)] : 0.0f;
                 const auto next = bin < highBin ? fftData[static_cast<size_t> (bin + 1)] : 0.0f;
                 if (magnitude <= 1.0e-8 || magnitude < previous || magnitude < next) continue;
-                const auto hz = bin * hzPerBin;
+                const auto hz = interpolatedPeakHz (fftData, bin, hzPerBin);
                 const auto weight = magnitude / std::sqrt (std::max (40.0, hz));
                 addSoftChroma (frameChroma, midiFromFrequency (hz, result.tuningHz), weight);
                 frameWeight += weight;
@@ -450,14 +474,11 @@ namespace tunerite
         }
         const auto clarity = keys.front().score - keys[1].score;
         result.tonalClarity = clamp01 (clarity / 0.25);
-        int agreeingWindows = 0;
+        double agreementSum = 0.0;
         for (const auto& frameChroma : tonalChromas)
-        {
-            const auto local = scoreKeys (frameChroma);
-            if (local.front().root == keys.front().root && local.front().mode == keys.front().mode) ++agreeingWindows;
-        }
-        result.tonalWindowAgreement = static_cast<double> (agreeingWindows) / tonalChromas.size();
-        result.harmonicContentSufficient = result.tonalWindowAgreement >= 0.20;
+            agreementSum += std::max (0.0, chromaCosine (frameChroma, result.chroma));
+        result.tonalWindowAgreement = agreementSum / tonalChromas.size();
+        result.harmonicContentSufficient = result.tonalWindowAgreement >= 0.42 && result.tonalClarity >= 0.12;
         result.relativeModeAmbiguous = keys.front().mode != keys[1].mode && clarity < 0.08;
         result.keyConfidence = clamp01 (0.48 * result.tonalClarity + 0.32 * result.tonalWindowAgreement + 0.12 * std::min (1.0, tonalChromas.size() / 24.0) + 0.08 * result.tuningConfidence);
         result.modeConfidence = clamp01 (clarity / 0.18);
