@@ -178,21 +178,33 @@ namespace
     {
         TempoWindow result;
         if (samples.size() < static_cast<size_t> (sampleRate * 4.0)) return result;
-        std::vector<double> changes;
-        changes.reserve (samples.size() - 1);
-        for (size_t index = 1; index < samples.size(); ++index)
-            changes.push_back (std::abs (static_cast<double> (samples[index]) - samples[index - 1]));
-        const auto threshold = percentile (changes, 0.997);
-        const auto minimumDistance = std::max (1, static_cast<int> (std::round (sampleRate * 0.12)));
-        std::vector<int> peaks;
-        for (int index = 1; index + 1 < static_cast<int> (changes.size()); ++index)
+        constexpr int envelopeFrame = 256;
+        constexpr int envelopeHop = 128;
+        std::vector<double> attackEnergy;
+        std::vector<int> attackPositions;
+        for (int start = 1; start + envelopeFrame < static_cast<int> (samples.size()); start += envelopeHop)
         {
-            if (changes[static_cast<size_t> (index)] < threshold
-                || changes[static_cast<size_t> (index)] < changes[static_cast<size_t> (index - 1)]
-                || changes[static_cast<size_t> (index)] < changes[static_cast<size_t> (index + 1)]) continue;
+            double energy = 0.0;
+            for (int index = 0; index < envelopeFrame; ++index)
+            {
+                const auto difference = static_cast<double> (samples[static_cast<size_t> (start + index)]) - samples[static_cast<size_t> (start + index - 1)];
+                energy += difference * difference;
+            }
+            attackEnergy.push_back (std::sqrt (energy / envelopeFrame));
+            attackPositions.push_back (start);
+        }
+        if (attackEnergy.size() < 12) return result;
+        const auto threshold = percentile (attackEnergy, 0.84);
+        const auto minimumDistance = std::max (1, static_cast<int> (std::round (0.12 * sampleRate / envelopeHop)));
+        std::vector<int> peaks;
+        for (int index = 1; index + 1 < static_cast<int> (attackEnergy.size()); ++index)
+        {
+            if (attackEnergy[static_cast<size_t> (index)] < threshold
+                || attackEnergy[static_cast<size_t> (index)] < attackEnergy[static_cast<size_t> (index - 1)]
+                || attackEnergy[static_cast<size_t> (index)] < attackEnergy[static_cast<size_t> (index + 1)]) continue;
             if (! peaks.empty() && index - peaks.back() < minimumDistance)
             {
-                if (changes[static_cast<size_t> (index)] > changes[static_cast<size_t> (peaks.back())]) peaks.back() = index;
+                if (attackEnergy[static_cast<size_t> (index)] > attackEnergy[static_cast<size_t> (peaks.back())]) peaks.back() = index;
                 continue;
             }
             peaks.push_back (index);
@@ -201,7 +213,7 @@ namespace
         std::vector<double> intervals;
         for (size_t index = 1; index < peaks.size(); ++index)
         {
-            const auto interval = peaks[index] - peaks[index - 1];
+            const auto interval = attackPositions[static_cast<size_t> (peaks[index])] - attackPositions[static_cast<size_t> (peaks[index - 1])];
             const auto bpm = 60.0 * sampleRate / interval;
             if (bpm >= 40.0 && bpm <= 240.0) intervals.push_back (interval);
         }
