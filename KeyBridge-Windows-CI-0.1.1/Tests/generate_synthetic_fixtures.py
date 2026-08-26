@@ -55,7 +55,7 @@ def reference_tone(hz: float, seconds: float = 6.0) -> list[float]:
     return [0.32 * math.sin(2.0 * PI * hz * index / SAMPLE_RATE) for index in range(count)]
 
 
-def deterministic_noise(seconds: float = 4.0, amplitude: float = 0.00005) -> list[float]:
+def deterministic_noise(seconds: float = 8.0, amplitude: float = 0.00005) -> list[float]:
     generator = random.Random(20260825)
     count = round(seconds * SAMPLE_RATE)
     return [amplitude * generator.uniform(-1.0, 1.0) for _ in range(count)]
@@ -69,7 +69,7 @@ def main() -> None:
 
     write_pcm16(args.output / "c_eg_click_120bpm.wav", beat_fixture(120.0))
     write_pcm16(args.output / "a3_220hz.wav", reference_tone(220.0))
-    write_pcm16(args.output / "silence.wav", [0.0] * round(4.0 * SAMPLE_RATE))
+    write_pcm16(args.output / "silence.wav", [0.0] * round(8.0 * SAMPLE_RATE))
     write_pcm16(args.output / "low_level_noise.wav", deterministic_noise())
 
 
