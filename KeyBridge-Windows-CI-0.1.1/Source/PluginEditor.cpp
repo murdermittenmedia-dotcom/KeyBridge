@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "BinaryData.h"
 
 #include <algorithm>
 #include <array>
@@ -32,6 +33,8 @@ KeyBridgeAudioProcessorEditor::KeyBridgeAudioProcessorEditor (KeyBridgeAudioProc
     : AudioProcessorEditor (&p), processor (p)
 {
     setOpaque (true);
+    brandLogo = juce::ImageCache::getFromMemory (BinaryData::MurderMittenMediaLogo_png,
+                                                 BinaryData::MurderMittenMediaLogo_pngSize);
     setResizable (true, true);
     setResizeLimits (1000, 650, 1800, 1200);
     setSize (1280, 780);
@@ -55,8 +58,8 @@ KeyBridgeAudioProcessorEditor::KeyBridgeAudioProcessorEditor (KeyBridgeAudioProc
     for (auto* label : { &bpmStatus, &keyStatus, &vocalStatus, &recommendationStatus })
         addLabel (*label, 10.0f, juce::Justification::centredLeft, juce::Colour (0xff9eb0c1));
 
-    title.setText ("TUNERITE", juce::dontSendNotification);
-    subtitle.setText ("Audio Analysis Console", juce::dontSendNotification);
+    title.setText ("TuneRite", juce::dontSendNotification);
+    subtitle.setText ("by Murder Mitten Media | Audio Analysis Assistant", juce::dontSendNotification);
     bpmTitle.setText ("AUDIO BPM", juce::dontSendNotification);
     keyTitle.setText ("KEY / SCALE", juce::dontSendNotification);
     vocalTitle.setText ("VOCAL ANALYSIS", juce::dontSendNotification);
@@ -288,6 +291,9 @@ void KeyBridgeAudioProcessorEditor::paint (juce::Graphics& g)
 
     const auto w = getWidth();
     const auto h = getHeight();
+    if (brandLogo.isValid())
+        g.drawImageWithin (brandLogo, 18, 10, 54, 54, juce::RectanglePlacement::centred, false);
+
     g.setColour (accent.withAlpha (0.10f + processor.getAppearanceGlow() * 0.12f));
     g.fillRect (0, 0, w, 4);
     g.setColour (juce::Colours::black.withAlpha (0.24f));
@@ -388,11 +394,11 @@ void KeyBridgeAudioProcessorEditor::resized()
 
     if (processor.getAnalysisMode() == 0)
     {
-        title.setBounds (margin, 16, 220, 32);
-        subtitle.setBounds (margin, 47, 250, 17);
-        beatModeButton.setBounds (280, 18, 104, 32);
-        vocalModeButton.setBounds (388, 18, 110, 32);
-        reviewModeButton.setBounds (502, 18, 90, 32);
+        title.setBounds (82, 12, 190, 32);
+        subtitle.setBounds (82, 44, 260, 17);
+        beatModeButton.setBounds (350, 18, 104, 32);
+        vocalModeButton.setBounds (458, 18, 110, 32);
+        reviewModeButton.setBounds (572, 18, 90, 32);
         appearanceButton.setVisible (false);
         analysisStatus.setBounds (margin, 77, w - margin * 2, 20);
         analysisStatus.setJustificationType (juce::Justification::centredLeft);
@@ -428,11 +434,11 @@ void KeyBridgeAudioProcessorEditor::resized()
     const auto vocalHeight = processor.isCompactAppearance() ? 132 : 154;
     const auto reviewX = margin + leftWidth + gap;
 
-    title.setBounds (margin, 10, 180, 30);
-    subtitle.setBounds (margin, 39, 220, 17);
-    beatModeButton.setBounds (250, 18, 104, 32);
-    vocalModeButton.setBounds (358, 18, 110, 32);
-    reviewModeButton.setBounds (472, 18, 90, 32);
+    title.setBounds (82, 8, 190, 30);
+    subtitle.setBounds (82, 37, 250, 17);
+    beatModeButton.setBounds (340, 18, 104, 32);
+    vocalModeButton.setBounds (448, 18, 110, 32);
+    reviewModeButton.setBounds (562, 18, 90, 32);
     appearanceButton.setBounds (w - 238, 20, 104, 27);
     inputStatus.setBounds (w - 430, 10, 178, 18);
     analysisStatus.setBounds (w - 430, 29, 178, 18);

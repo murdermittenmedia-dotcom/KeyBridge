@@ -7,13 +7,19 @@ endif()
 
 add_subdirectory(JUCE)
 
+# Supplied Murder Mitten Media brand asset, embedded in the native editor.
+juce_add_binary_data(TuneriteBrandingAssets
+    SOURCES
+        Resources/MurderMittenMediaLogo.png
+)
+
 juce_add_plugin(Tunerite
-    COMPANY_NAME "MurderMittenMedia"
+    COMPANY_NAME "Murder Mitten Media"
     PLUGIN_MANUFACTURER_CODE Mmm1
     PLUGIN_CODE Tnr1
     FORMATS VST3
-    PRODUCT_NAME "Tunerite"
-    DESCRIPTION "Transparent beat key and BPM analyzer with Vocal Fit guidance"
+    PRODUCT_NAME "TuneRite"
+    DESCRIPTION "TuneRite by Murder Mitten Media — transparent beat key and BPM analyzer"
     IS_SYNTH FALSE
     NEEDS_MIDI_INPUT FALSE
     NEEDS_MIDI_OUTPUT FALSE
@@ -38,6 +44,7 @@ target_compile_definitions(Tunerite PRIVATE
 )
 
 target_link_libraries(Tunerite PRIVATE
+    TuneriteBrandingAssets
     juce::juce_audio_utils
     juce::juce_dsp
     juce::juce_recommended_config_flags
@@ -105,6 +112,7 @@ target_sources(TuneriteProcessorCaptureTests PRIVATE
 )
 
 target_link_libraries(TuneriteProcessorCaptureTests PRIVATE
+    TuneriteBrandingAssets
     juce::juce_audio_utils
     juce::juce_dsp
     juce::juce_recommended_config_flags

@@ -43,6 +43,7 @@ private:
     juce::String keyName (int root, int mode) const;
 
     KeyBridgeAudioProcessor& processor;
+    juce::Image brandLogo;
 
     juce::Label title, subtitle, inputStatus, analysisStatus, projectBpmLabel;
     juce::Label workflowLabel, instructionLabel, visualStatusLabel, meterCaption;
