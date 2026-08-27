@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
+#include "VocalFit.h"
 
 #include <array>
 
@@ -41,6 +42,7 @@ private:
     juce::Colour statusColour (const juce::String&) const;
     juce::String midiName (float midi) const;
     juce::String keyName (int root, int mode) const;
+    tunerite::VocalFitRecommendation currentVocalFit() const;
 
     KeyBridgeAudioProcessor& processor;
     juce::Image brandLogo;

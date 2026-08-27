@@ -44,8 +44,8 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          cmake --build build-msvc --config Release --target TuneriteOfflineAnalyzer TuneriteAnalysisCoreSyntheticTests TuneriteProcessorCaptureTests --parallel
-          if ($LASTEXITCODE -ne 0) { throw "Offline analyzer, shared-core test, or processor-capture test build failed with exit code $LASTEXITCODE" }
+          cmake --build build-msvc --config Release --target TuneriteOfflineAnalyzer TuneriteAnalysisCoreSyntheticTests TuneriteProcessorCaptureTests TuneriteVocalFitTests --parallel
+          if ($LASTEXITCODE -ne 0) { throw "Offline analyzer, shared-core test, processor-capture test, or Vocal Fit test build failed with exit code $LASTEXITCODE" }
           $reports = [System.IO.Path]::GetFullPath((Join-Path $PWD "build-msvc/offline-reports"))
           New-Item -ItemType Directory -Force -Path $reports | Out-Null
           $test = Get-ChildItem "build-msvc" -Recurse -File -Filter "TuneriteAnalysisCoreSyntheticTests.exe" | Select-Object -First 1
@@ -64,6 +64,12 @@ jobs:
           & $captureTest.FullName 2>&1 | Tee-Object -FilePath $captureLog
           $captureExit = $LASTEXITCODE
           if ($captureExit -ne 0) { throw "Beat/Vocal processor capture regression failed with exit code $captureExit; inspect $captureLog" }
+          $vocalFitTest = Get-ChildItem "build-msvc" -Recurse -File -Filter "TuneriteVocalFitTests.exe" | Select-Object -First 1
+          if ($null -eq $vocalFitTest) { throw "Vocal Fit test executable was not produced" }
+          $vocalFitLog = Join-Path $reports "vocal-fit-test.log"
+          & $vocalFitTest.FullName 2>&1 | Tee-Object -FilePath $vocalFitLog
+          $vocalFitExit = $LASTEXITCODE
+          if ($vocalFitExit -ne 0) { throw "Vocal Fit regression failed with exit code $vocalFitExit; inspect $vocalFitLog" }
 
       - name: Validate offline WAV analyzer reports
         shell: pwsh

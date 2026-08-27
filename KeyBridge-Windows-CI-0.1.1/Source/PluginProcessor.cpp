@@ -38,6 +38,8 @@ void KeyBridgeAudioProcessor::prepareToPlay (double newSampleRate, int)
     completedBuffer.store (-1, std::memory_order_relaxed);
     captureRequested.store (false, std::memory_order_relaxed);
     finishCaptureRequested.store (false, std::memory_order_relaxed);
+    captureFinalizationQueued.store (false, std::memory_order_relaxed);
+    captureWriters.store (0, std::memory_order_relaxed);
     captureActive.store (false, std::memory_order_relaxed);
     captureState.store (idle, std::memory_order_relaxed);
     capturedSignalSamples.store (0, std::memory_order_relaxed);
@@ -126,7 +128,12 @@ void KeyBridgeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
         capturedSignalSamples.store (0, std::memory_order_relaxed);
         capturedSignalSeconds.store (0.0f, std::memory_order_relaxed);
         finishCaptureRequested.store (false, std::memory_order_relaxed);
+        captureFinalizationQueued.store (false, std::memory_order_relaxed);
         captureGeneration.store (analysisGeneration.fetch_add (1, std::memory_order_acq_rel) + 1, std::memory_order_release);
+        if (analysisMode.load (std::memory_order_relaxed) == 0)
+            clearBeatResult();
+        else
+            clearVocalResult();
         resetLiveResults();
         captureState.store (capturing, std::memory_order_release);
         captureActive.store (true, std::memory_order_release);
@@ -138,6 +145,20 @@ void KeyBridgeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
     const auto mode = analysisMode.load (std::memory_order_relaxed);
     if (mode == 2)
         return;
+
+    // Claim this callback as a buffer writer before touching the active capture buffer.
+    // A UI-thread Finish Capture claim sets captureFinalizationQueued first; the recheck
+    // below prevents a writer that raced that claim from modifying a worker-owned buffer.
+    captureWriters.fetch_add (1, std::memory_order_acq_rel);
+    if (! captureActive.load (std::memory_order_acquire)
+        || captureFinalizationQueued.load (std::memory_order_acquire))
+    {
+        captureWriters.fetch_sub (1, std::memory_order_acq_rel);
+        // If Finish Capture won the race, this callback is the one that now makes the
+        // preallocated buffer eligible for worker handoff. No additional host callback is needed.
+        tryFinalizeCapture();
+        return;
+    }
 
     const auto bufferIndex = activeBuffer.load (std::memory_order_relaxed);
     auto& destination = captureBuffers[bufferIndex];
@@ -166,25 +187,63 @@ void KeyBridgeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
         vocalRms.store (0.85f * vocalRms.load (std::memory_order_relaxed) + 0.15f * rms, std::memory_order_relaxed);
     }
 
+    if (write >= capacity)
+        finishCaptureRequested.store (true, std::memory_order_release);
+
+    // The write has completed. A pending UI finish can now safely hand off the preallocated
+    // capture buffer without requiring another host callback after transport stops.
+    captureWriters.fetch_sub (1, std::memory_order_acq_rel);
+    tryFinalizeCapture();
+}
+
+void KeyBridgeAudioProcessor::tryFinalizeCapture() noexcept
+{
+    if (! captureActive.load (std::memory_order_acquire))
+        return;
+
+    const auto write = capturedSamples.load (std::memory_order_acquire);
+    const auto capacity = static_cast<int> (captureBuffers[activeBuffer.load (std::memory_order_relaxed)].size());
+    const bool shouldFinish = finishCaptureRequested.load (std::memory_order_acquire) || write >= capacity;
+    if (! shouldFinish)
+        return;
+
+    if (! captureFinalizationQueued.load (std::memory_order_acquire))
+    {
+        bool expected = false;
+        if (! captureFinalizationQueued.compare_exchange_strong (expected, true, std::memory_order_acq_rel))
+            return;
+    }
+
+    // A callback that had already entered the capture path will release this counter before
+    // invoking tryFinalizeCapture again. New writers observe the queued claim and return before
+    // touching the buffer. The later retry is intentionally allowed to retain the queued claim.
+    if (captureWriters.load (std::memory_order_acquire) != 0)
+        return;
+
+    bool active = true;
+    if (! captureActive.compare_exchange_strong (active, false, std::memory_order_acq_rel))
+        return;
+
     const auto minimumSamples = static_cast<int> (std::ceil (sampleRate * minimumCaptureSeconds));
-    const auto finishRequested = finishCaptureRequested.load (std::memory_order_acquire);
-    if (finishRequested && write < minimumSamples)
+    if (write < minimumSamples)
     {
         finishCaptureRequested.store (false, std::memory_order_release);
-        captureState.store (captureRms > 0.0005f ? insufficientAudio : noSignal, std::memory_order_release);
+        captureState.store (capturedSignalSamples.load (std::memory_order_acquire) > 0 ? insufficientAudio : noSignal,
+                            std::memory_order_release);
+        captureFinalizationQueued.store (false, std::memory_order_release);
+        return;
     }
-    else if (write >= capacity || (finishRequested && write >= minimumSamples))
-    {
-        finishCaptureRequested.store (false, std::memory_order_release);
-        captureActive.store (false, std::memory_order_release);
-        captureState.store (processing, std::memory_order_release);
-        completedBuffer.store (bufferIndex, std::memory_order_release);
-        completedSamples.store (write, std::memory_order_release);
-        completedMode.store (mode, std::memory_order_release);
-        completedGeneration.store (captureGeneration.load (std::memory_order_acquire), std::memory_order_release);
-        workerJobReady.store (true, std::memory_order_release);
-        workerWake.notify_one();
-    }
+
+    const auto bufferIndex = activeBuffer.load (std::memory_order_acquire);
+    const auto mode = analysisMode.load (std::memory_order_acquire);
+    finishCaptureRequested.store (false, std::memory_order_release);
+    captureState.store (processing, std::memory_order_release);
+    completedBuffer.store (bufferIndex, std::memory_order_release);
+    completedSamples.store (write, std::memory_order_release);
+    completedMode.store (mode, std::memory_order_release);
+    completedGeneration.store (captureGeneration.load (std::memory_order_acquire), std::memory_order_release);
+    workerJobReady.store (true, std::memory_order_release);
+    workerWake.notify_one();
 }
 
 void KeyBridgeAudioProcessor::workerLoop()
@@ -241,23 +300,27 @@ void KeyBridgeAudioProcessor::publishBeatResult (const tunerite::BeatAnalysisRes
     detectedKeyValid.store (result.keyValid, std::memory_order_relaxed);
     hasStableDetectionFlag.store (result.usableAudio && result.tempoValid && result.keyValid, std::memory_order_release);
 
-    // Beat Only is an answer workflow: retain each independently valid audio-derived result.
+    // Beat Only is an answer workflow. Store field data first, then publish the associated
+    // generation/validity flags. Tempo and key are intentionally saved independently.
+    bool savedAnyBeatAnswer = false;
     if (result.usableAudio && result.tempoValid)
     {
         savedBeatBpm.store (result.bpm, std::memory_order_relaxed);
         savedBeatAlternativeBpm.store (result.alternativeBpm, std::memory_order_relaxed);
         savedBeatBpmConfidence.store (static_cast<float> (result.bpmConfidence), std::memory_order_relaxed);
+        savedBeatGeneration.store (generation, std::memory_order_release);
         savedBeatTempoValid.store (true, std::memory_order_release);
+        savedAnyBeatAnswer = true;
     }
     if (result.usableAudio && result.keyValid)
     {
         savedBeatKey.store (result.keyRoot, std::memory_order_relaxed);
         savedBeatMode.store (result.keyMode, std::memory_order_relaxed);
         savedBeatKeyConfidence.store (static_cast<float> (result.keyConfidence), std::memory_order_relaxed);
+        savedBeatGeneration.store (generation, std::memory_order_release);
         savedBeatKeyValid.store (true, std::memory_order_release);
+        savedAnyBeatAnswer = true;
     }
-    const auto savedAnyBeatAnswer = savedBeatTempoValid.load (std::memory_order_acquire)
-                                 || savedBeatKeyValid.load (std::memory_order_acquire);
     savedBeatResult.store (savedAnyBeatAnswer, std::memory_order_release);
     beatOutcomeState.store (savedAnyBeatAnswer ? 1 : 2, std::memory_order_release);
 }
@@ -276,6 +339,28 @@ void KeyBridgeAudioProcessor::publishVocalResult (const tunerite::VocalAnalysisR
     vocalVibrato.store (static_cast<float> (result.vibratoDepthCents), std::memory_order_relaxed);
     vocalFrames.store (static_cast<int> (result.midiContour.size()), std::memory_order_relaxed);
     vocalMelodic.store (result.melodic, std::memory_order_relaxed);
+
+    // Vocal Only mirrors Beat Only: a valid worker-published result is automatically saved.
+    // The validity flag is the release-published snapshot boundary for all saved vocal fields.
+    const auto validVocal = result.usableAudio && ! result.uncertain
+        && result.confidence >= 0.55 && result.voicedPercent >= 0.20;
+    if (validVocal)
+    {
+        savedVocalLowestMidi.store (static_cast<float> (result.lowMidi), std::memory_order_relaxed);
+        savedVocalHighestMidi.store (static_cast<float> (result.highMidi), std::memory_order_relaxed);
+        savedVocalAverageMidi.store (static_cast<float> (result.averageMidi), std::memory_order_relaxed);
+        savedVocalVoicedPercent.store (static_cast<float> (result.voicedPercent), std::memory_order_relaxed);
+        savedVocalConfidence.store (static_cast<float> (result.confidence), std::memory_order_relaxed);
+        savedVocalSustainedPercent.store (static_cast<float> (result.sustainedPercent), std::memory_order_relaxed);
+        savedVocalNoteChangeSpeed.store (static_cast<float> (result.noteChangeRate), std::memory_order_relaxed);
+        savedVocalMelodic.store (result.melodic, std::memory_order_relaxed);
+        savedVocalGeneration.store (generation, std::memory_order_release);
+        savedVocalResult.store (true, std::memory_order_release);
+    }
+    else
+    {
+        savedVocalResult.store (false, std::memory_order_release);
+    }
 }
 
 void KeyBridgeAudioProcessor::resetLiveResults() noexcept
@@ -320,14 +405,9 @@ void KeyBridgeAudioProcessor::startFreshAnalysis() noexcept
         analysisGeneration.fetch_add (1, std::memory_order_acq_rel);
         finishCaptureRequested.store (false, std::memory_order_release);
         if (analysisMode.load (std::memory_order_relaxed) == 0)
-        {
-            savedBeatResult.store (false, std::memory_order_release);
-            savedBeatTempoValid.store (false, std::memory_order_release);
-            savedBeatKeyValid.store (false, std::memory_order_release);
-            savedBeatBpm.store (0.0, std::memory_order_relaxed);
-            savedBeatKey.store (-1, std::memory_order_relaxed);
-            savedBeatMode.store (-1, std::memory_order_relaxed);
-        }
+            clearBeatResult();
+        else
+            clearVocalResult();
         beatOutcomeState.store (0, std::memory_order_release);
         captureState.store (armed, std::memory_order_release);
         captureRequested.store (true, std::memory_order_release);
@@ -337,7 +417,12 @@ void KeyBridgeAudioProcessor::startFreshAnalysis() noexcept
 void KeyBridgeAudioProcessor::finishCapture() noexcept
 {
     if (captureActive.load (std::memory_order_acquire))
+    {
         finishCaptureRequested.store (true, std::memory_order_release);
+        // This call is UI-safe and can queue a fully written preallocated buffer immediately
+        // when the host has already stopped delivering callbacks.
+        tryFinalizeCapture();
+    }
 }
 
 void KeyBridgeAudioProcessor::stopAnalysis() noexcept
@@ -369,19 +454,9 @@ void KeyBridgeAudioProcessor::saveBeatResult() noexcept
 
 void KeyBridgeAudioProcessor::saveVocalResult() noexcept
 {
-    if (vocalConfidence.load (std::memory_order_relaxed) >= 0.55f
-        && vocalVoicedPercent.load (std::memory_order_relaxed) >= 0.20f)
-    {
-        savedVocalLowestMidi.store (vocalLowestMidi.load (std::memory_order_relaxed), std::memory_order_relaxed);
-        savedVocalHighestMidi.store (vocalHighestMidi.load (std::memory_order_relaxed), std::memory_order_relaxed);
-        savedVocalAverageMidi.store (vocalAverageMidi.load (std::memory_order_relaxed), std::memory_order_relaxed);
-        savedVocalVoicedPercent.store (vocalVoicedPercent.load (std::memory_order_relaxed), std::memory_order_relaxed);
-        savedVocalConfidence.store (vocalConfidence.load (std::memory_order_relaxed), std::memory_order_relaxed);
-        savedVocalSustainedPercent.store (vocalSustainedPercent.load (std::memory_order_relaxed), std::memory_order_relaxed);
-        savedVocalNoteChangeSpeed.store (vocalNoteChangeSpeed.load (std::memory_order_relaxed), std::memory_order_relaxed);
-        savedVocalMelodic.store (vocalMelodic.load (std::memory_order_relaxed), std::memory_order_relaxed);
-        savedVocalResult.store (true, std::memory_order_release);
-    }
+    // Retained for session compatibility. Valid vocal results are now saved atomically by the
+    // worker in publishVocalResult(), so a UI action never reconstructs a snapshot from loose
+    // live atomics.
 }
 
 void KeyBridgeAudioProcessor::clearBeatResult() noexcept
@@ -390,6 +465,10 @@ void KeyBridgeAudioProcessor::clearBeatResult() noexcept
     savedBeatTempoValid.store (false, std::memory_order_release);
     savedBeatKeyValid.store (false, std::memory_order_release);
     savedBeatBpm.store (0.0, std::memory_order_relaxed);
+    savedBeatAlternativeBpm.store (0.0, std::memory_order_relaxed);
+    savedBeatKeyConfidence.store (0.0f, std::memory_order_relaxed);
+    savedBeatBpmConfidence.store (0.0f, std::memory_order_relaxed);
+    savedBeatGeneration.store (0, std::memory_order_release);
     beatOutcomeState.store (0, std::memory_order_release);
     savedBeatKey.store (-1, std::memory_order_relaxed);
     savedBeatMode.store (-1, std::memory_order_relaxed);
@@ -398,19 +477,27 @@ void KeyBridgeAudioProcessor::clearBeatResult() noexcept
 void KeyBridgeAudioProcessor::clearVocalResult() noexcept
 {
     savedVocalResult.store (false, std::memory_order_release);
+    savedVocalGeneration.store (0, std::memory_order_release);
+    savedVocalLowestMidi.store (0.0f, std::memory_order_relaxed);
+    savedVocalHighestMidi.store (0.0f, std::memory_order_relaxed);
+    savedVocalAverageMidi.store (0.0f, std::memory_order_relaxed);
+    savedVocalVoicedPercent.store (0.0f, std::memory_order_relaxed);
+    savedVocalConfidence.store (0.0f, std::memory_order_relaxed);
+    savedVocalSustainedPercent.store (0.0f, std::memory_order_relaxed);
+    savedVocalNoteChangeSpeed.store (0.0f, std::memory_order_relaxed);
+    savedVocalMelodic.store (false, std::memory_order_relaxed);
 }
 
 void KeyBridgeAudioProcessor::resetAllResults() noexcept
 {
-    savedBeatResult.store (false, std::memory_order_release);
-    savedBeatTempoValid.store (false, std::memory_order_release);
-    savedBeatKeyValid.store (false, std::memory_order_release);
+    clearBeatResult();
+    clearVocalResult();
     beatOutcomeState.store (0, std::memory_order_release);
-    savedVocalResult.store (false, std::memory_order_release);
     analysisGeneration.fetch_add (1, std::memory_order_acq_rel);
     captureActive.store (false, std::memory_order_release);
     captureRequested.store (false, std::memory_order_release);
     finishCaptureRequested.store (false, std::memory_order_release);
+    captureFinalizationQueued.store (false, std::memory_order_release);
     captureState.store (idle, std::memory_order_release);
     capturedSignalSamples.store (0, std::memory_order_relaxed);
     capturedSignalSeconds.store (0.0f, std::memory_order_relaxed);
@@ -435,12 +522,37 @@ void KeyBridgeAudioProcessor::resetAppearance() noexcept
 void KeyBridgeAudioProcessor::getStateInformation (juce::MemoryBlock& destinationData)
 {
     juce::ValueTree state ("TuneRiteState");
+    state.setProperty ("stateVersion", 2, nullptr);
     state.setProperty ("accent", static_cast<int> (appearanceAccent.load (std::memory_order_relaxed)), nullptr);
     state.setProperty ("panel", static_cast<int> (appearancePanel.load (std::memory_order_relaxed)), nullptr);
     state.setProperty ("background", static_cast<int> (appearanceBackground.load (std::memory_order_relaxed)), nullptr);
     state.setProperty ("panelOpacity", appearancePanelOpacity.load (std::memory_order_relaxed), nullptr);
     state.setProperty ("glow", appearanceGlow.load (std::memory_order_relaxed), nullptr);
     state.setProperty ("compact", appearanceCompact.load (std::memory_order_relaxed), nullptr);
+
+    // Saved analysis results are persisted independently. Validity is stored explicitly so
+    // absent/uncertain fields never acquire a fabricated default on session reload.
+    state.setProperty ("savedBeatResult", savedBeatResult.load (std::memory_order_acquire), nullptr);
+    state.setProperty ("savedBeatTempoValid", savedBeatTempoValid.load (std::memory_order_acquire), nullptr);
+    state.setProperty ("savedBeatKeyValid", savedBeatKeyValid.load (std::memory_order_acquire), nullptr);
+    state.setProperty ("savedBeatGeneration", static_cast<juce::int64> (savedBeatGeneration.load (std::memory_order_acquire)), nullptr);
+    state.setProperty ("savedBeatKey", savedBeatKey.load (std::memory_order_relaxed), nullptr);
+    state.setProperty ("savedBeatMode", savedBeatMode.load (std::memory_order_relaxed), nullptr);
+    state.setProperty ("savedBeatBpm", savedBeatBpm.load (std::memory_order_relaxed), nullptr);
+    state.setProperty ("savedBeatAlternativeBpm", savedBeatAlternativeBpm.load (std::memory_order_relaxed), nullptr);
+    state.setProperty ("savedBeatKeyConfidence", savedBeatKeyConfidence.load (std::memory_order_relaxed), nullptr);
+    state.setProperty ("savedBeatBpmConfidence", savedBeatBpmConfidence.load (std::memory_order_relaxed), nullptr);
+
+    state.setProperty ("savedVocalResult", savedVocalResult.load (std::memory_order_acquire), nullptr);
+    state.setProperty ("savedVocalGeneration", static_cast<juce::int64> (savedVocalGeneration.load (std::memory_order_acquire)), nullptr);
+    state.setProperty ("savedVocalLow", savedVocalLowestMidi.load (std::memory_order_relaxed), nullptr);
+    state.setProperty ("savedVocalHigh", savedVocalHighestMidi.load (std::memory_order_relaxed), nullptr);
+    state.setProperty ("savedVocalAverage", savedVocalAverageMidi.load (std::memory_order_relaxed), nullptr);
+    state.setProperty ("savedVocalVoiced", savedVocalVoicedPercent.load (std::memory_order_relaxed), nullptr);
+    state.setProperty ("savedVocalConfidence", savedVocalConfidence.load (std::memory_order_relaxed), nullptr);
+    state.setProperty ("savedVocalSustained", savedVocalSustainedPercent.load (std::memory_order_relaxed), nullptr);
+    state.setProperty ("savedVocalNoteChange", savedVocalNoteChangeSpeed.load (std::memory_order_relaxed), nullptr);
+    state.setProperty ("savedVocalMelodic", savedVocalMelodic.load (std::memory_order_relaxed), nullptr);
     copyXmlToBinary (*state.createXml(), destinationData);
 }
 
@@ -457,6 +569,36 @@ void KeyBridgeAudioProcessor::setStateInformation (const void* data, int sizeInB
                            static_cast<float> (state.getProperty ("panelOpacity", 0.94f)),
                            static_cast<float> (state.getProperty ("glow", 0.35f)),
                            static_cast<bool> (state.getProperty ("compact", false)));
+
+            if (static_cast<int> (state.getProperty ("stateVersion", 1)) >= 2)
+            {
+                const auto beatTempoValid = static_cast<bool> (state.getProperty ("savedBeatTempoValid", false));
+                const auto beatKeyValid = static_cast<bool> (state.getProperty ("savedBeatKeyValid", false));
+                const auto vocalValid = static_cast<bool> (state.getProperty ("savedVocalResult", false));
+
+                savedBeatKey.store (static_cast<int> (state.getProperty ("savedBeatKey", -1)), std::memory_order_relaxed);
+                savedBeatMode.store (static_cast<int> (state.getProperty ("savedBeatMode", -1)), std::memory_order_relaxed);
+                savedBeatBpm.store (static_cast<double> (state.getProperty ("savedBeatBpm", 0.0)), std::memory_order_relaxed);
+                savedBeatAlternativeBpm.store (static_cast<double> (state.getProperty ("savedBeatAlternativeBpm", 0.0)), std::memory_order_relaxed);
+                savedBeatKeyConfidence.store (static_cast<float> (state.getProperty ("savedBeatKeyConfidence", 0.0f)), std::memory_order_relaxed);
+                savedBeatBpmConfidence.store (static_cast<float> (state.getProperty ("savedBeatBpmConfidence", 0.0f)), std::memory_order_relaxed);
+                savedBeatGeneration.store (static_cast<std::uint64_t> (static_cast<juce::int64> (state.getProperty ("savedBeatGeneration", 0))), std::memory_order_release);
+                savedBeatTempoValid.store (beatTempoValid, std::memory_order_release);
+                savedBeatKeyValid.store (beatKeyValid, std::memory_order_release);
+                savedBeatResult.store (beatTempoValid || beatKeyValid, std::memory_order_release);
+                beatOutcomeState.store ((beatTempoValid || beatKeyValid) ? 1 : 0, std::memory_order_release);
+
+                savedVocalLowestMidi.store (static_cast<float> (state.getProperty ("savedVocalLow", 0.0f)), std::memory_order_relaxed);
+                savedVocalHighestMidi.store (static_cast<float> (state.getProperty ("savedVocalHigh", 0.0f)), std::memory_order_relaxed);
+                savedVocalAverageMidi.store (static_cast<float> (state.getProperty ("savedVocalAverage", 0.0f)), std::memory_order_relaxed);
+                savedVocalVoicedPercent.store (static_cast<float> (state.getProperty ("savedVocalVoiced", 0.0f)), std::memory_order_relaxed);
+                savedVocalConfidence.store (static_cast<float> (state.getProperty ("savedVocalConfidence", 0.0f)), std::memory_order_relaxed);
+                savedVocalSustainedPercent.store (static_cast<float> (state.getProperty ("savedVocalSustained", 0.0f)), std::memory_order_relaxed);
+                savedVocalNoteChangeSpeed.store (static_cast<float> (state.getProperty ("savedVocalNoteChange", 0.0f)), std::memory_order_relaxed);
+                savedVocalMelodic.store (static_cast<bool> (state.getProperty ("savedVocalMelodic", false)), std::memory_order_relaxed);
+                savedVocalGeneration.store (static_cast<std::uint64_t> (static_cast<juce::int64> (state.getProperty ("savedVocalGeneration", 0))), std::memory_order_release);
+                savedVocalResult.store (vocalValid, std::memory_order_release);
+            }
         }
     }
 }

@@ -116,6 +116,7 @@ KeyBridgeAudioProcessorEditor::KeyBridgeAudioProcessorEditor (KeyBridgeAudioProc
     for (auto* box : { &profileBox, &genreBox, &deliveryBox, &vibeBox })
     {
         box->setTooltip ("A user preference that affects recommendation style only. It never changes measured key or BPM.");
+        box->onChange = [this] { refreshView(); };
         addAndMakeVisible (*box);
     }
 
@@ -196,7 +197,32 @@ juce::Colour KeyBridgeAudioProcessorEditor::statusColour (const juce::String& st
 
 juce::String KeyBridgeAudioProcessorEditor::keyName (int root, int mode) const
 {
-    return juce::String (noteNames[static_cast<size_t> (juce::jlimit (0, 11, root))]) + (mode == 0 ? " major" : " minor");
+    if (root < 0 || root >= 12 || (mode != 0 && mode != 1))
+        return "UNKNOWN";
+    return juce::String (noteNames[static_cast<size_t> (root)]) + (mode == 0 ? " major" : " minor");
+}
+
+tunerite::VocalFitRecommendation KeyBridgeAudioProcessorEditor::currentVocalFit() const
+{
+    tunerite::VocalFitRequest request;
+    request.beatKeyValid = processor.hasSavedBeatKey();
+    request.beatKeyRoot = processor.getSavedBeatKey();
+    request.beatKeyMode = processor.getSavedBeatMode();
+    request.beatTempoValid = processor.hasSavedBeatTempo();
+    request.beatBpm = processor.getSavedBeatBpm();
+    request.vocalValid = processor.hasValidVocalResult();
+    request.vocalMelodic = processor.getSavedVocalMelodic();
+    request.vocalLowMidi = processor.getSavedVocalLowestMidi();
+    request.vocalHighMidi = processor.getSavedVocalHighestMidi();
+    request.vocalAverageMidi = processor.getSavedVocalAverageMidi();
+    request.vocalConfidence = processor.getSavedVocalConfidence();
+    request.vocalSustainedPercent = processor.getSavedVocalSustainedPercent();
+    request.vocalNoteChangeRate = processor.getSavedVocalNoteChangeSpeed();
+    request.voiceProfile = profileBox.getText().toStdString();
+    request.genre = genreBox.getText().toStdString();
+    request.delivery = deliveryBox.getText().toStdString();
+    request.mood = vibeBox.getText().toStdString();
+    return tunerite::VocalFit::recommend (request);
 }
 
 juce::String KeyBridgeAudioProcessorEditor::midiName (float midi) const
@@ -521,7 +547,8 @@ void KeyBridgeAudioProcessorEditor::timerCallback()
 void KeyBridgeAudioProcessorEditor::refreshView()
 {
     const auto mode = processor.getAnalysisMode();
-    const auto beatSaved = processor.hasValidBeatResult();
+    const auto beatTempoSaved = processor.hasSavedBeatTempo();
+    const auto beatKeySaved = processor.hasSavedBeatKey();
     const auto vocalSaved = processor.hasValidVocalResult();
     const auto live = processor.isAnalysisActive();
     const auto signal = processor.getInputLevel() > 0.0001f;
@@ -535,7 +562,7 @@ void KeyBridgeAudioProcessorEditor::refreshView()
         case 2: status = processor.isCaptureFinishRequested() ? "FINISH REQUESTED" : "CAPTURING"; break;
         case 3: status = "PROCESSING CAPTURE"; break;
         case 4: status = "NO SIGNAL - KEEP PLAYING"; break;
-        case 5: status = "NEED 6 SECONDS BEFORE FINISH"; break;
+        case 5: status = "NEED 12 SECONDS BEFORE FINISH"; break;
         case 6: status = "CAPTURE CANCELLED"; break;
         default: status = mode == 2 ? "REVIEW READY" : signal ? "READY" : "NO SIGNAL"; break;
     }
@@ -581,10 +608,10 @@ void KeyBridgeAudioProcessorEditor::refreshView()
     for (auto* component : { static_cast<juce::Component*> (&inputStatus), static_cast<juce::Component*> (&projectBpmLabel), static_cast<juce::Component*> (&meterCaption), static_cast<juce::Component*> (&bpmDetail), static_cast<juce::Component*> (&keyDetail), static_cast<juce::Component*> (&keyNotes), static_cast<juce::Component*> (&keyStatus), static_cast<juce::Component*> (&vocalTitle), static_cast<juce::Component*> (&vocalValue), static_cast<juce::Component*> (&vocalDetail), static_cast<juce::Component*> (&vocalStatus), static_cast<juce::Component*> (&recommendationTitle), static_cast<juce::Component*> (&recommendationValue), static_cast<juce::Component*> (&recommendationDetail), static_cast<juce::Component*> (&recommendationStatus), static_cast<juce::Component*> (&stopButton), static_cast<juce::Component*> (&saveButton), static_cast<juce::Component*> (&copyBpmButton), static_cast<juce::Component*> (&copyReportButton), static_cast<juce::Component*> (&copySettingsButton), static_cast<juce::Component*> (&visualStatusLabel) })
         component->setVisible (true);
 
-    const auto bpm = beatSaved ? processor.getSavedBeatBpm() : processor.getDetectedBpm();
-    const auto alternative = beatSaved ? processor.getSavedBeatAlternativeBpm() : processor.getAlternativeBpm();
-    const auto bpmConfidence = beatSaved ? processor.getSavedBeatBpmConfidence() : processor.getBpmConfidence();
-    if (beatSaved)
+    const auto bpm = beatTempoSaved ? processor.getSavedBeatBpm() : processor.getDetectedBpm();
+    const auto alternative = beatTempoSaved ? processor.getSavedBeatAlternativeBpm() : processor.getAlternativeBpm();
+    const auto bpmConfidence = beatTempoSaved ? processor.getSavedBeatBpmConfidence() : processor.getBpmConfidence();
+    if (beatTempoSaved)
     {
         bpmValue.setText (juce::String (bpm, 1), juce::dontSendNotification);
         bpmDetail.setText ("Project BPM: " + juce::String (processor.getHostBpm(), 2)
@@ -608,10 +635,10 @@ void KeyBridgeAudioProcessorEditor::refreshView()
     }
     bpmStatus.setColour (juce::Label::textColourId, statusColour (bpmStatus.getText()));
 
-    const auto root = beatSaved ? processor.getSavedBeatKey() : processor.getDetectedKey();
-    const auto scaleMode = beatSaved ? processor.getSavedBeatMode() : processor.getDetectedMode();
-    const auto keyConfidence = beatSaved ? processor.getSavedBeatKeyConfidence() : processor.getKeyConfidence();
-    if (beatSaved)
+    const auto root = beatKeySaved ? processor.getSavedBeatKey() : processor.getDetectedKey();
+    const auto scaleMode = beatKeySaved ? processor.getSavedBeatMode() : processor.getDetectedMode();
+    const auto keyConfidence = beatKeySaved ? processor.getSavedBeatKeyConfidence() : processor.getKeyConfidence();
+    if (beatKeySaved)
     {
         const auto& scale = scaleMode == 0 ? majorScale : minorScale;
         juce::String notes;
@@ -668,52 +695,48 @@ void KeyBridgeAudioProcessorEditor::refreshView()
     }
     vocalStatus.setColour (juce::Label::textColourId, statusColour (vocalStatus.getText()));
 
-    if (beatSaved && vocalSaved)
+    const auto vocalFit = currentVocalFit();
+    if (vocalFit.ready)
     {
-        const auto hardTune = vibeBox.getText() == "Hard tune";
-        const auto melodic = processor.getSavedVocalMelodic();
-        const auto retune = hardTune ? 5 : (melodic ? 38 : 18);
-        const auto humanize = juce::jlimit (5, 55, static_cast<int> (10.0f + processor.getSavedVocalSustainedPercent() * 45.0f));
-        const auto flexTune = hardTune ? 8 : (melodic ? 42 : 18);
-        const auto processing = deliveryBox.getText() == "Sung" ? "HQ" : "Low latency";
-        recommendationValue.setText (keyName (processor.getSavedBeatKey(), processor.getSavedBeatMode()), juce::dontSendNotification);
-        recommendationDetail.setText ("MEASURED: key/scale and vocal range\nRECOMMENDED: " + juce::String (hardTune ? "Classic" : "Modern")
-            + "  |  Retune " + juce::String (retune) + " ms\nHumanize " + juce::String (humanize)
-            + "  |  Flex-Tune " + juce::String (flexTune)
-            + "  |  " + processing
-            + "\nWhy: based on saved vocal sustain and note-change behavior. Starting point only.", juce::dontSendNotification);
-        recommendationStatus.setText ("RECOMMENDATION READY", juce::dontSendNotification);
+        recommendationValue.setText (juce::String (vocalFit.keyScale), juce::dontSendNotification);
+        recommendationDetail.setText ("MEASURED: " + juce::String (vocalFit.keyScale) + " | " + juce::String (vocalFit.vocalRange)
+            + "\nRECOMMENDED: " + (vocalFit.classicMode ? "Classic" : "Modern")
+            + "  |  Retune " + juce::String (vocalFit.retuneSpeedMs) + " ms\nHumanize " + juce::String (vocalFit.humanize)
+            + "  |  Flex-Tune " + juce::String (vocalFit.flexTune)
+            + "  |  " + juce::String (vocalFit.processingMode)
+            + "\nWhy: " + juce::String (vocalFit.rationale) + " Starting point only; TuneRite does not control Auto-Tune directly.", juce::dontSendNotification);
+        recommendationStatus.setText (juce::String (vocalFit.status), juce::dontSendNotification);
     }
     else
     {
-        recommendationValue.setText ("LOCKED", juce::dontSendNotification);
-        recommendationDetail.setText ("Save valid Beat and Vocal results separately before TuneRite reveals starting settings. It will not invent a key, range, or Auto-Tune value.", juce::dontSendNotification);
-        recommendationStatus.setText ("REQUIRES TWO VALID SAVED RESULTS", juce::dontSendNotification);
+        recommendationValue.setText (vocalFit.keyScale.empty() ? "LOCKED" : juce::String (vocalFit.keyScale), juce::dontSendNotification);
+        recommendationDetail.setText (juce::String (vocalFit.rationale), juce::dontSendNotification);
+        recommendationStatus.setText (juce::String (vocalFit.status), juce::dontSendNotification);
     }
-    recommendationStatus.setColour (juce::Label::textColourId, statusColour (beatSaved && vocalSaved ? "VALID" : "LOW"));
+    recommendationStatus.setColour (juce::Label::textColourId, statusColour (vocalFit.ready ? "VALID" : "LOW"));
 
     if (mode == 0)
     {
         workflowLabel.setText ("1. CAPTURE BEAT   ->   2. CAPTURE VOCAL   ->   3. REVIEW SETTINGS", juce::dontSendNotification);
-        instructionLabel.setText ("Mute vocals. Press Analyze Beat, play at least 6 seconds, then press Finish Capture; it auto-finishes at 16 seconds.", juce::dontSendNotification);
+        instructionLabel.setText ("Mute vocals. Press Analyze Beat, play at least 12 seconds, then press Stop and Save; it auto-finishes at 16 seconds.", juce::dontSendNotification);
         analyzeButton.setButtonText ("ANALYZE BEAT"); stopButton.setButtonText ("FINISH CAPTURE"); saveButton.setButtonText ("SAVE BEAT RESULT"); clearButton.setButtonText ("CLEAR BEAT");
     }
     else if (mode == 1)
     {
         workflowLabel.setText ("1. CAPTURE BEAT   ->   2. CAPTURE VOCAL   ->   3. REVIEW SETTINGS", juce::dontSendNotification);
-        instructionLabel.setText ("Mute the beat. Press Analyze Vocal, play isolated voice for at least 6 seconds, then press Finish Capture; it auto-finishes at 16 seconds.", juce::dontSendNotification);
+        instructionLabel.setText ("Mute the beat. Press Analyze Vocal, play isolated voice for at least 12 seconds, then press Stop and Save; it auto-finishes at 16 seconds.", juce::dontSendNotification);
         analyzeButton.setButtonText ("ANALYZE VOCAL"); stopButton.setButtonText ("FINISH CAPTURE"); saveButton.setButtonText ("SAVE VOCAL RESULT"); clearButton.setButtonText ("CLEAR VOCAL");
     }
     else
     {
         workflowLabel.setText ("1. CAPTURE BEAT   ->   2. CAPTURE VOCAL   ->   3. REVIEW SETTINGS", juce::dontSendNotification);
-        instructionLabel.setText (beatSaved && vocalSaved ? "Both valid results are saved. Review and copy starting settings." : "Review is locked until both valid results are saved.", juce::dontSendNotification);
+        instructionLabel.setText (beatKeySaved && vocalSaved ? "Both valid results are saved. Review and copy starting settings." : "Review needs a saved beat key and saved vocal result. BPM may be saved separately.", juce::dontSendNotification);
         analyzeButton.setButtonText ("REVIEW COMBINED"); stopButton.setButtonText ("FINISH CAPTURE"); saveButton.setButtonText ("SAVED RESULTS ONLY"); clearButton.setButtonText ("CLEAR RESULTS");
     }
 
     const auto callbackText = "callbacks " + juce::String (static_cast<juce::int64> (processor.getAudioCallbackCount()))
         + " | block " + juce::String (processor.getLastAudioBlockSize());
-    visualStatusLabel.setText (live ? "CAPTURE DIAGNOSTIC: " + callbackText + " | buffer " + juce::String (processor.getAnalysisDuration(), 1) + "s | signal " + juce::String (processor.getCapturedSignalSeconds(), 1) + "s | minimum finish 6.0s" : "INPUT HISTORY: " + callbackText + " | real meter samples only. No decorative animation.", juce::dontSendNotification);
+    visualStatusLabel.setText (live ? "CAPTURE DIAGNOSTIC: " + callbackText + " | buffer " + juce::String (processor.getAnalysisDuration(), 1) + "s | signal " + juce::String (processor.getCapturedSignalSeconds(), 1) + "s | minimum finish 12.0s" : "INPUT HISTORY: " + callbackText + " | real meter samples only. No decorative animation.", juce::dontSendNotification);
     updateActionStates();
 }
 
@@ -722,21 +745,24 @@ void KeyBridgeAudioProcessorEditor::updateActionStates()
     const auto mode = processor.getAnalysisMode();
     const auto beatReady = processor.hasStableDetection() && ! processor.isAnalysisActive();
     const auto vocalReady = processor.getVocalConfidence() >= 0.55f && processor.getVocalVoicedPercent() >= 0.20f && ! processor.isAnalysisActive();
-    const auto bothSaved = processor.hasValidBeatResult() && processor.hasValidVocalResult();
+    const auto bothSaved = processor.hasSavedBeatKey() && processor.hasValidVocalResult();
+    juce::ignoreUnused (beatReady, vocalReady);
     analyzeButton.setEnabled (mode != 2 && ! processor.isAnalysisActive());
     stopButton.setEnabled (processor.isAnalysisActive() && processor.getCaptureState() == 2);
-    saveButton.setEnabled (mode == 0 ? beatReady : mode == 1 ? vocalReady : false);
+    // Results are saved by the worker at publication time; no manual save action is required.
+    saveButton.setVisible (false);
+    saveButton.setEnabled (false);
     clearButton.setEnabled (mode == 0 ? processor.hasSavedBeatResult() : mode == 1 ? processor.hasSavedVocalResult() : bothSaved);
-    copyBpmButton.setEnabled (processor.hasSavedBeatResult());
+    copyBpmButton.setEnabled (processor.hasSavedBeatTempo());
     copySettingsButton.setEnabled (bothSaved);
     copyReportButton.setEnabled (processor.hasSavedBeatResult() || processor.hasSavedVocalResult());
 }
 
 void KeyBridgeAudioProcessorEditor::copyDetectedBpm()
 {
-    if (! processor.hasSavedBeatResult())
+    if (! processor.hasSavedBeatTempo())
     {
-        bpmStatus.setText ("SAVE A VALID BEAT RESULT FIRST", juce::dontSendNotification);
+        bpmStatus.setText ("CAPTURE A VALID BPM FIRST", juce::dontSendNotification);
         return;
     }
     juce::SystemClipboard::copyTextToClipboard (juce::String (processor.getSavedBeatBpm(), 2));
@@ -745,15 +771,21 @@ void KeyBridgeAudioProcessorEditor::copyDetectedBpm()
 
 void KeyBridgeAudioProcessorEditor::copySettings()
 {
-    if (! (processor.hasValidBeatResult() && processor.hasValidVocalResult()))
+    const auto vocalFit = currentVocalFit();
+    if (! vocalFit.ready)
     {
-        recommendationStatus.setText ("REQUIRES TWO VALID SAVED RESULTS", juce::dontSendNotification);
+        recommendationStatus.setText (juce::String (vocalFit.status), juce::dontSendNotification);
         return;
     }
     const auto text = juce::String ("TuneRite Auto-Tune Starting Point\n")
-        + "Measured key/scale: " + keyName (processor.getSavedBeatKey(), processor.getSavedBeatMode()) + "\n"
-        + "Measured BPM: " + juce::String (processor.getSavedBeatBpm(), 2) + "\n"
-        + "Measured vocal range: " + midiName (processor.getSavedVocalLowestMidi()) + " - " + midiName (processor.getSavedVocalHighestMidi()) + "\n"
+        + "Measured key/scale: " + juce::String (vocalFit.keyScale) + "\n"
+        + (processor.hasSavedBeatTempo() ? "Measured BPM: " + juce::String (processor.getSavedBeatBpm(), 2) + "\n" : "Measured BPM: unavailable\n")
+        + "Measured vocal range: " + juce::String (vocalFit.vocalRange) + "\n"
+        + "Recommended mode: " + (vocalFit.classicMode ? "Classic" : "Modern") + "\n"
+        + "Recommended retune speed: " + juce::String (vocalFit.retuneSpeedMs) + " ms\n"
+        + "Recommended humanize: " + juce::String (vocalFit.humanize) + "\n"
+        + "Recommended Flex-Tune: " + juce::String (vocalFit.flexTune) + "\n"
+        + "Processing: " + juce::String (vocalFit.processingMode) + "\n"
         + "Recommendation: starting point only; TuneRite does not control Auto-Tune directly.";
     juce::SystemClipboard::copyTextToClipboard (text);
     recommendationStatus.setText ("AUTO-TUNE STARTING POINT COPIED", juce::dontSendNotification);
@@ -762,12 +794,21 @@ void KeyBridgeAudioProcessorEditor::copySettings()
 void KeyBridgeAudioProcessorEditor::copyEngineerReport()
 {
     juce::String text ("TuneRite Engineer Report\n");
-    text += "Beat saved: " + juce::String (processor.hasSavedBeatResult() ? "yes" : "no") + "\n";
-    if (processor.hasSavedBeatResult())
+    text += "Beat BPM saved: " + juce::String (processor.hasSavedBeatTempo() ? "yes" : "no") + "\n";
+    if (processor.hasSavedBeatTempo())
     {
         text += "BPM: " + juce::String (processor.getSavedBeatBpm(), 2) + "\n";
+        text += "BPM confidence: " + confidenceText (processor.getSavedBeatBpmConfidence()) + "\n";
+    }
+    text += "Beat key saved: " + juce::String (processor.hasSavedBeatKey() ? "yes" : "no") + "\n";
+    if (processor.hasSavedBeatKey())
+    {
         text += "Key: " + keyName (processor.getSavedBeatKey(), processor.getSavedBeatMode()) + "\n";
-        text += "Confidence: key " + confidenceText (processor.getSavedBeatKeyConfidence()) + ", BPM " + confidenceText (processor.getSavedBeatBpmConfidence()) + "\n";
+        text += "Key confidence: " + confidenceText (processor.getSavedBeatKeyConfidence()) + "\n";
+    }
+    else
+    {
+        text += "Key: UNKNOWN / UNCERTAIN\n";
     }
     text += "Vocal saved: " + juce::String (processor.hasSavedVocalResult() ? "yes" : "no") + "\n";
     if (processor.hasSavedVocalResult())

@@ -135,6 +135,17 @@ namespace
         double phase = 0.0;
     };
 
+    // Tempo is periodic: 104, 208, and 416 BPM can describe the same pulse family. The
+    // comparison operates in log-period space so a fixed BPM tolerance is not biased by tempo.
+    double tempoFamilyDistance (double leftBpm, double rightBpm)
+    {
+        if (leftBpm <= 0.0 || rightBpm <= 0.0) return std::numeric_limits<double>::infinity();
+        auto best = std::numeric_limits<double>::infinity();
+        for (const auto multiplier : { 0.5, 1.0, 2.0, 4.0 })
+            best = std::min (best, std::abs (std::log (leftBpm / (rightBpm * multiplier))));
+        return best;
+    }
+
     TempoWindow estimateTempoWindow (const std::vector<double>& onset, int begin, int end, double onsetRate)
     {
         TempoWindow best;
@@ -240,6 +251,40 @@ namespace
             }
         }
         return best;
+    }
+
+    TempoWindow scoreTempoAtBpm (const std::vector<double>& onset, int begin, int end, double onsetRate, double bpm)
+    {
+        TempoWindow result;
+        if (bpm < 40.0 || bpm > 240.0 || end - begin < 32) return result;
+        const auto lag = std::max (1, static_cast<int> (std::round (60.0 * onsetRate / bpm)));
+        if (lag >= end - begin - 1) return result;
+
+        double correlation = 0.0, leftEnergy = 0.0, rightEnergy = 0.0;
+        for (int index = begin + lag; index < end; ++index)
+        {
+            const auto left = onset[static_cast<size_t> (index)];
+            const auto right = onset[static_cast<size_t> (index - lag)];
+            correlation += left * right;
+            leftEnergy += left * left;
+            rightEnergy += right * right;
+        }
+        const auto normalized = correlation / std::sqrt (leftEnergy * rightEnergy + 1.0e-15);
+        if (normalized <= 0.0) return result;
+
+        double bestPhaseEnergy = 0.0, totalPhaseEnergy = 0.0;
+        for (int phase = 0; phase < lag; ++phase)
+        {
+            double phaseEnergy = 0.0;
+            for (int index = begin + phase; index < end; index += lag)
+                phaseEnergy += onset[static_cast<size_t> (index)];
+            bestPhaseEnergy = std::max (bestPhaseEnergy, phaseEnergy);
+            totalPhaseEnergy += phaseEnergy;
+        }
+        result.bpm = bpm;
+        result.phase = bestPhaseEnergy / (totalPhaseEnergy + 1.0e-15);
+        result.score = normalized * (0.78 + 0.22 * std::min (1.0, result.phase * lag));
+        return result;
     }
 
     TempoWindow estimateDirectTransientTempo (const std::vector<float>& samples, double sampleRate)
@@ -644,58 +689,107 @@ namespace tunerite
             value.score += windowTempo.score;
             ++value.count;
         }
+
+        // Window candidates are the primary BPM evidence. Direct transients remain an
+        // independent corroborating estimator; they never replace the window decision.
+        std::vector<TempoCandidate> windowCandidates;
         for (const auto& [bucket, value] : aggregate)
         {
             juce::ignoreUnused (bucket);
             if (value.score > 0.0)
-                result.tempoCandidates.push_back ({ value.weightedBpm / value.score, value.score / std::max (1, value.count) });
+                windowCandidates.push_back ({ value.weightedBpm / value.score, value.score / std::max (1, value.count) });
         }
-        if (directTempo.bpm > 0.0)
-            result.tempoCandidates.push_back ({ directTempo.bpm, directTempo.score * 1.03 });
-        std::sort (result.tempoCandidates.begin(), result.tempoCandidates.end(), [] (const auto& a, const auto& b) { return a.score > b.score; });
-
-        // Resolve a repeated-pulse family only when the faster integer multiple has comparable evidence across windows.
-        if (! result.tempoCandidates.empty())
-        {
-            const auto leadingScore = result.tempoCandidates.front().score;
-            for (auto& candidate : result.tempoCandidates)
-            {
-                const auto ratio = candidate.bpm / result.tempoCandidates.front().bpm;
-                const auto multiple = static_cast<int> (std::round (ratio));
-                if (multiple >= 2 && multiple <= 4 && std::abs (ratio - multiple) < 0.035 && candidate.score >= leadingScore * 0.42)
-                    candidate.score = leadingScore * 1.002;
-            }
-            std::sort (result.tempoCandidates.begin(), result.tempoCandidates.end(), [] (const auto& a, const auto& b) { return a.score > b.score; });
-        }
-        if (result.tempoCandidates.empty())
+        std::sort (windowCandidates.begin(), windowCandidates.end(), [] (const auto& a, const auto& b) { return a.score > b.score; });
+        if (windowCandidates.empty())
         {
             result.warning = "No aggregate tempo candidate was found.";
             appendInputQualityWarning();
             return result;
         }
+
+        // Autocorrelation can prefer a slower repeated-bar period on very fast material.
+        // Promote a faster integer multiple only when it is supported by the same window
+        // evidence family, not merely by the direct transient path.
+        const auto leadingWindowScore = windowCandidates.front().score;
+        for (auto& candidate : windowCandidates)
+        {
+            const auto ratio = candidate.bpm / windowCandidates.front().bpm;
+            const auto multiple = static_cast<int> (std::round (ratio));
+            if (multiple >= 2 && multiple <= 4 && std::abs (ratio - multiple) < 0.04
+                && candidate.score >= leadingWindowScore * 0.38)
+                candidate.score = leadingWindowScore * 1.002;
+        }
+
+        // A direct transient estimate can expose a missed pulse subharmonic, but it earns
+        // promotion only after independent onset-correlation scoring in every analysis window.
+        // This preserves direct transients as evidence—not an unconditional override.
+        const auto directIsStrong = directTempo.bpm > 0.0 && directTempo.phase >= 0.93 && directTempo.score >= 0.75;
+        bool directPulsePromoted = false;
+        if (directIsStrong)
+        {
+            const auto directRatio = directTempo.bpm / windowCandidates.front().bpm;
+            const auto directMultiple = static_cast<int> (std::round (directRatio));
+            if (directMultiple >= 2 && directMultiple <= 4 && std::abs (directRatio - directMultiple) < 0.04)
+            {
+                std::vector<double> support;
+                for (int start = 0; start + windowFrames <= static_cast<int> (onset.size()); start += windowHop)
+                    support.push_back (scoreTempoAtBpm (onset, start, start + windowFrames, onsetRate, directTempo.bpm).score);
+                const auto robustSupport = trimmedMean (support);
+                if (support.size() >= 2 && robustSupport >= 0.20)
+                {
+                    windowCandidates.push_back ({ directTempo.bpm, leadingWindowScore * 1.003 });
+                    directPulsePromoted = true;
+                }
+            }
+        }
+        std::sort (windowCandidates.begin(), windowCandidates.end(), [] (const auto& a, const auto& b) { return a.score > b.score; });
+
+        const auto primaryWindowBpm = windowCandidates.front().bpm;
+        result.tempoCandidates = windowCandidates;
+        if (directTempo.bpm > 0.0)
+            result.tempoCandidates.push_back ({ directTempo.bpm, directTempo.score });
+        std::sort (result.tempoCandidates.begin(), result.tempoCandidates.end(), [] (const auto& a, const auto& b) { return a.score > b.score; });
         if (result.tempoCandidates.size() > 3) result.tempoCandidates.resize (3);
-        const auto highStabilityDirectTempo = directTempo.bpm > 0.0 && directTempo.phase >= 0.93;
-        result.bpm = highStabilityDirectTempo ? directTempo.bpm : result.tempoCandidates.front().bpm;
+
+        result.bpm = primaryWindowBpm;
         result.alternativeBpm = 0.0;
         for (const auto& candidate : result.tempoCandidates)
-            if (std::abs (candidate.bpm - result.bpm) > 0.25) { result.alternativeBpm = candidate.bpm; break; }
+            if (tempoFamilyDistance (candidate.bpm, result.bpm) > std::log (1.01))
+            {
+                result.alternativeBpm = candidate.bpm;
+                break;
+            }
         result.halfTimeBpm = result.bpm * 0.5;
         result.doubleTimeBpm = result.bpm * 2.0;
-        const auto runnerScore = result.tempoCandidates.size() > 1 ? result.tempoCandidates[1].score : 0.0;
-        const auto margin = (result.tempoCandidates.front().score - runnerScore) / (result.tempoCandidates.front().score + 1.0e-15);
+
+        const auto runnerScore = windowCandidates.size() > 1 ? windowCandidates[1].score : 0.0;
+        const auto margin = (windowCandidates.front().score - runnerScore) / (windowCandidates.front().score + 1.0e-15);
         std::vector<double> bpmValues;
+        std::vector<double> logPeriodDeviations;
         for (const auto& windowTempo : windowTempi) bpmValues.push_back (windowTempo.bpm);
         const auto medianBpm = percentile (bpmValues, 0.5);
-        std::vector<double> deviations;
-        for (const auto bpm : bpmValues) deviations.push_back (std::abs (bpm - medianBpm));
-        result.tempoStability = highStabilityDirectTempo ? directTempo.phase : clamp01 (1.0 - percentile (deviations, 0.5) / 3.0);
-        result.tempoAmbiguous = ! highStabilityDirectTempo && result.tempoCandidates.size() > 1
-            && (margin < 0.16 || std::abs (result.bpm / result.alternativeBpm - 2.0) < 0.05 || std::abs (result.bpm / result.alternativeBpm - 0.5) < 0.05);
-        result.bpmConfidence = highStabilityDirectTempo
-            ? clamp01 (0.76 + 0.18 * directTempo.phase + 0.06 * std::min (1.0, result.usableTempoWindows / 3.0))
-            : clamp01 (0.38 * clamp01 (margin / 0.35) + 0.36 * result.tempoStability + 0.16 * std::min (1.0, result.usableTempoWindows / 3.0) + 0.10 * clamp01 (result.onsetCoverage / 0.20));
+        for (const auto bpm : bpmValues) logPeriodDeviations.push_back (std::abs (std::log (bpm / medianBpm)));
+        // A 3% period dispersion is a meaningful relative stability threshold at all tempos.
+        result.tempoStability = clamp01 (1.0 - percentile (logPeriodDeviations, 0.5) / std::log (1.03));
+
+        const auto directAgrees = ! directIsStrong
+            || tempoFamilyDistance (directTempo.bpm, result.bpm) <= std::log (1.03);
+        const auto windowSupport = result.usableTempoWindows >= 2;
+        const auto competingWindow = ! directPulsePromoted && windowCandidates.size() > 1
+            && tempoFamilyDistance (windowCandidates[1].bpm, result.bpm) > std::log (1.03)
+            && margin < 0.16;
+        result.tempoAmbiguous = ! directAgrees || ! windowSupport || competingWindow;
+        result.bpmConfidence = clamp01 (
+              0.34 * clamp01 (margin / 0.35)
+            + 0.36 * result.tempoStability
+            + 0.16 * std::min (1.0, result.usableTempoWindows / 3.0)
+            + 0.08 * clamp01 (result.onsetCoverage / 0.20)
+            + 0.06 * (directAgrees ? 1.0 : 0.0)
+            + 0.06 * (directPulsePromoted ? 1.0 : 0.0));
         result.bpmUncertain = result.bpmConfidence < 0.60 || result.tempoAmbiguous;
         result.tempoValid = ! result.bpmUncertain;
+        if (! directAgrees)
+            result.warning = "Tempo estimators disagree; BPM is uncertain.";
 
         // Re-run tonal frames at a modest rate using the selected tuning and soft, non-nearest chroma binning.
         const auto transientThreshold = percentile (tonalOnset, 0.90);

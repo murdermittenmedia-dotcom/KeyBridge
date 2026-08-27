@@ -66,7 +66,7 @@ public:
     void setAnalysisMode (int mode) noexcept { analysisMode.store (juce::jlimit (0, 2, mode), std::memory_order_relaxed); }
     int getAnalysisMode() const noexcept { return analysisMode.load (std::memory_order_relaxed); }
     void startFreshAnalysis() noexcept;
-    // Requests worker analysis once at least the minimum audio capture is present; it never discards a valid partial capture.
+    // Requests worker analysis once the capture reaches the reliable evidence duration; it never discards valid audio.
     void finishCapture() noexcept;
     // Cancels a pending or active capture and explicitly discards its unsent audio.
     void stopAnalysis() noexcept;
@@ -83,8 +83,10 @@ public:
     int getBeatOutcomeState() const noexcept { return beatOutcomeState.load (std::memory_order_relaxed); }
     bool hasSavedBeatTempo() const noexcept { return savedBeatTempoValid.load (std::memory_order_relaxed); }
     bool hasSavedBeatKey() const noexcept { return savedBeatKeyValid.load (std::memory_order_relaxed); }
-    bool hasSavedVocalResult() const noexcept { return savedVocalResult.load (std::memory_order_relaxed); }
+    bool hasSavedVocalResult() const noexcept { return savedVocalResult.load (std::memory_order_acquire); }
     bool hasValidBeatResult() const noexcept { return hasSavedBeatTempo() && hasSavedBeatKey(); }
+    std::uint64_t getSavedBeatGeneration() const noexcept { return savedBeatGeneration.load (std::memory_order_acquire); }
+    std::uint64_t getSavedVocalGeneration() const noexcept { return savedVocalGeneration.load (std::memory_order_acquire); }
     bool hasValidVocalResult() const noexcept { return hasSavedVocalResult(); }
     int getSavedBeatKey() const noexcept { return savedBeatKey.load (std::memory_order_relaxed); }
     int getSavedBeatMode() const noexcept { return savedBeatMode.load (std::memory_order_relaxed); }
@@ -127,12 +129,17 @@ public:
 
 private:
     void workerLoop();
+    // May run on either the UI thread or at the end of processBlock. It only publishes a
+    // preallocated buffer to the worker after the audio callback has relinquished it.
+    void tryFinalizeCapture() noexcept;
     void resetLiveResults() noexcept;
     void publishBeatResult (const tunerite::BeatAnalysisResult&, std::uint64_t generation);
     void publishVocalResult (const tunerite::VocalAnalysisResult&, std::uint64_t generation);
 
     static constexpr double captureSeconds = 16.0;
-    static constexpr double minimumCaptureSeconds = 6.0;
+    // The multi-window tempo consensus needs two overlapping eight-second windows. Shorter
+    // requests terminate as insufficient rather than pretending that a BPM was measured.
+    static constexpr double minimumCaptureSeconds = 12.0;
     enum CaptureState { idle = 0, armed = 1, capturing = 2, processing = 3, noSignal = 4, insufficientAudio = 5, cancelled = 6 };
     double sampleRate = 44100.0;
     std::vector<float> captureBuffers[2];
@@ -141,6 +148,10 @@ private:
     std::atomic<int> completedBuffer { -1 };
     std::atomic<int> completedSamples { 0 };
     std::atomic<int> completedMode { 0 };
+    // The callback increments this counter before it writes a capture buffer. A UI-thread
+    // finish request queues only after the counter is zero, so no worker reads a live buffer.
+    std::atomic<int> captureWriters { 0 };
+    std::atomic<bool> captureFinalizationQueued { false };
     std::atomic<std::uint64_t> analysisGeneration { 0 };
     std::atomic<std::uint64_t> captureGeneration { 0 };
     std::atomic<std::uint64_t> completedGeneration { 0 };
@@ -203,6 +214,10 @@ private:
     std::atomic<bool> savedBeatTempoValid { false };
     std::atomic<bool> savedBeatKeyValid { false };
     std::atomic<bool> savedVocalResult { false };
+    // Validity flags are stored last with release semantics. Readers use their acquire load as
+    // the publication boundary for the field values and their associated capture generation.
+    std::atomic<std::uint64_t> savedBeatGeneration { 0 };
+    std::atomic<std::uint64_t> savedVocalGeneration { 0 };
     std::atomic<int> savedBeatKey { -1 };
     std::atomic<int> savedBeatMode { -1 };
     std::atomic<double> savedBeatBpm { 0.0 };

@@ -11,7 +11,7 @@ namespace
 {
     constexpr double sampleRate = 48000.0;
     constexpr int blockSize = 480;
-    constexpr int captureBlocks = 650; // 6.5 seconds at 48 kHz.
+    constexpr int captureBlocks = 1250; // 12.5 seconds at 48 kHz: two overlapping eight-second tempo windows.
 
     bool waitUntilIdle (KeyBridgeAudioProcessor& processor, int timeoutMilliseconds)
     {
@@ -120,13 +120,16 @@ int main (int argc, char* argv[])
 
     auto ok = true;
     ok &= expect (processor.getAudioCallbackCount() > 0, "Beat pass must receive host-style audio callbacks");
-    ok &= expect (processor.getAnalysisDuration() >= 6.0f, "Beat pass must retain at least six seconds of captured audio");
-    ok &= expect (processor.getCapturedSignalSeconds() >= 6.0f, "Beat pass must register source signal duration");
+    ok &= expect (processor.getAnalysisDuration() >= 12.0f, "Beat pass must retain the 12 seconds required for tempo consensus");
+    ok &= expect (processor.getCapturedSignalSeconds() >= 12.0f, "Beat pass must register the required source signal duration");
     ok &= expect (processor.getCaptureState() == 2, "Beat pass must remain capturable before explicit finish");
+    // Finish must queue the fully written capture even if transport stops immediately and there
+    // is no subsequent processBlock callback.
     processor.finishCapture();
-    fillBeatBlock (buffer, captureBlocks);
-    processor.processBlock (buffer, midi);
-    ok &= expect (waitUntilIdle (processor, 8000), "Beat Finish Capture must queue and complete worker analysis");
+    ok &= expect (waitUntilIdle (processor, 8000), "Beat Finish Capture must queue and complete worker analysis without another callback");
+    ok &= expect (processor.hasSavedBeatTempo(), "Valid Beat capture must automatically save BPM");
+    ok &= expect (processor.hasSavedBeatResult(), "Valid Beat capture must publish a saved beat outcome");
+    ok &= expect (processor.getSavedBeatBpm() > 0.0, "Saved Beat BPM must contain a measured value");
 
     processor.setAnalysisMode (1);
     processor.startFreshAnalysis();
@@ -136,16 +139,32 @@ int main (int argc, char* argv[])
         processor.processBlock (buffer, midi);
     }
 
-    ok &= expect (processor.getAnalysisDuration() >= 6.0f, "Vocal pass must retain at least six seconds of captured audio");
-    ok &= expect (processor.getCapturedSignalSeconds() >= 6.0f, "Vocal pass must register source signal duration");
+    ok &= expect (processor.getAnalysisDuration() >= 12.0f, "Vocal pass must retain the reliable capture duration");
+    ok &= expect (processor.getCapturedSignalSeconds() >= 12.0f, "Vocal pass must register the required source signal duration");
     ok &= expect (processor.getCaptureState() == 2, "Vocal pass must remain capturable before explicit finish");
     processor.finishCapture();
-    fillVocalBlock (buffer, captureBlocks);
-    processor.processBlock (buffer, midi);
-    ok &= expect (waitUntilIdle (processor, 8000), "Vocal Finish Capture must queue and complete worker analysis");
+    ok &= expect (waitUntilIdle (processor, 8000), "Vocal Finish Capture must queue and complete worker analysis without another callback");
     ok &= expect (processor.getVocalConfidence() > 0.55f, "Vocal pass must publish a voiced pitch result");
+    ok &= expect (processor.hasSavedVocalResult(), "Valid Vocal capture must automatically save its result");
+    ok &= expect (processor.getSavedVocalGeneration() > 0, "Saved Vocal result must retain its capture generation");
+
+    // Saved analysis evidence must survive a state round-trip for a reopened DAW project.
+    juce::MemoryBlock savedState;
+    processor.getStateInformation (savedState);
+    KeyBridgeAudioProcessor restored;
+    restored.prepareToPlay (sampleRate, blockSize);
+    restored.setStateInformation (savedState.getData(), static_cast<int> (savedState.getSize()));
+    ok &= expect (restored.hasSavedBeatTempo(), "Saved Beat BPM must survive state reload");
+    ok &= expect (restored.hasSavedVocalResult(), "Saved Vocal result must survive state reload");
+    ok &= expect (std::abs (restored.getSavedBeatBpm() - processor.getSavedBeatBpm()) < 0.001,
+                  "Reloaded Beat BPM must match the saved snapshot");
+    ok &= expect (std::abs (restored.getSavedVocalAverageMidi() - processor.getSavedVocalAverageMidi()) < 0.001f,
+                  "Reloaded Vocal average MIDI must match the saved snapshot");
 
     std::cout << "capture_callbacks=" << processor.getAudioCallbackCount()
+              << " saved_beat_tempo=" << processor.hasSavedBeatTempo()
+              << " saved_beat_key=" << processor.hasSavedBeatKey()
+              << " saved_vocal=" << processor.hasSavedVocalResult()
               << " vocal_confidence=" << processor.getVocalConfidence()
               << " vocal_average_midi=" << processor.getVocalAverageMidi()
               << "\n";
@@ -174,13 +193,9 @@ int main (int argc, char* argv[])
         ok &= expect (bufferUnchanged (before, fixtureBlock), "Transparent processor path must not alter fixture audio");
     }
     if (processor.getCaptureState() == 2)
-    {
         processor.finishCapture();
-        fillFixtureBlock (fixtureBlock, fixture, juce::jmax (0, samplesToStream - blockSize));
-        processor.processBlock (fixtureBlock, midi);
-    }
-    ok &= expect (waitUntilIdle (processor, 30000), "Fixture capture must complete background analysis");
-    ok &= expect (processor.getCapturedSignalSeconds() >= 6.0f, "Fixture replay must present at least six seconds of source signal");
+    ok &= expect (waitUntilIdle (processor, 30000), "Fixture capture must complete background analysis without another callback");
+    ok &= expect (processor.getCapturedSignalSeconds() >= 12.0f, "Fixture replay must present the reliable source signal duration");
 
     const auto fixtureResult = processor.getLastPublishedBeatAnalysisForDiagnostics();
     std::cout << "fixture_capture_seconds=" << processor.getAnalysisDuration()
