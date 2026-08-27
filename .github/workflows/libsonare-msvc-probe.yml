@@ -37,7 +37,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Continue"
-          $libsonareSource = (Resolve-Path "libsonare").Path.Replace("\\", "/")
+          $libsonareSource = (Resolve-Path "libsonare").Path.Replace("\", "/")
           cmake -S probes/libsonare-msvc-analysis -B build-libsonare-msvc -G "Visual Studio 17 2022" -A x64 `
             -DLIBSONARE_SOURCE_DIR="$libsonareSource" *>&1 | Tee-Object -FilePath libsonare-msvc-probe.log
           $exitCode = $LASTEXITCODE
