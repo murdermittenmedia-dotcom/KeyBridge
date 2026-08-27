@@ -10,7 +10,7 @@ jobs:
       contents: read
 
     steps:
-      - name: Checkout TuneRite toolchain context
+      - name: Checkout temporary probe branch
         uses: actions/checkout@v4
 
       - name: Checkout pinned libsonare source
@@ -21,18 +21,34 @@ jobs:
           path: libsonare
           fetch-depth: 1
 
-      - name: Configure analysis-only libsonare with MSVC x64
+      - name: Bypass only the top-level Windows guard
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $cmakePath = "libsonare/CMakeLists.txt"
+          $lines = Get-Content -LiteralPath $cmakePath
+          if ($lines.Count -lt 9 -or $lines[3].Trim() -ne "if(WIN32)") {
+            throw "Pinned libsonare top-level Windows guard was not found at expected lines 4-8"
+          }
+          $patched = @($lines[0..2]) + @($lines[8..($lines.Count - 1)])
+          Set-Content -LiteralPath $cmakePath -Value $patched -Encoding utf8NoBOM
+
+      - name: Configure BPM key analysis-only probe with MSVC x64
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          cmake -S probes/libsonare-msvc-analysis -B build-libsonare-msvc -G "Visual Studio 17 2022" -A x64 `
+            -DLIBSONARE_SOURCE_DIR="${{ github.workspace }}/libsonare"
+          if ($LASTEXITCODE -ne 0) { throw "Analysis-only probe configuration failed with exit code $LASTEXITCODE" }
+
+      - name: Build and link BPM key analysis-only probe
         shell: pwsh
         run: |
           $ErrorActionPreference = "Continue"
-          cmake -S libsonare -B build-libsonare-msvc -G "Visual Studio 17 2022" -A x64 `
-            -DBUILD_TESTING=OFF -DBUILD_CLI=OFF -DBUILD_BENCH=OFF `
-            -DBUILD_MASTERING=OFF -DBUILD_MIXING=OFF -DBUILD_GRAPH=OFF `
-            -DBUILD_FX=OFF -DBUILD_ACOUSTIC_SIM=OFF -DBUILD_VOICE_CHANGER=OFF `
-            -DBUILD_ARRANGEMENT=OFF -DBUILD_ASSIST=OFF -DSONARE_WITH_FFMPEG=OFF `
-            *>&1 | Tee-Object -FilePath libsonare-msvc-probe.log
+          cmake --build build-libsonare-msvc --config Release --target libsonare_analysis_probe --parallel *>&1 |
+            Tee-Object -FilePath libsonare-msvc-probe.log
           $exitCode = $LASTEXITCODE
-          Add-Content -Path libsonare-msvc-probe.log -Value "CMake exit code: $exitCode"
+          Add-Content -Path libsonare-msvc-probe.log -Value "Build exit code: $exitCode"
           exit $exitCode
 
       - name: Upload MSVC probe log
