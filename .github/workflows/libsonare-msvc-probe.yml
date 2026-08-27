@@ -36,17 +36,20 @@ jobs:
       - name: Configure BPM key analysis-only probe with MSVC x64
         shell: pwsh
         run: |
-          $ErrorActionPreference = "Stop"
+          $ErrorActionPreference = "Continue"
+          $libsonareSource = (Resolve-Path "libsonare").Path.Replace("\\", "/")
           cmake -S probes/libsonare-msvc-analysis -B build-libsonare-msvc -G "Visual Studio 17 2022" -A x64 `
-            -DLIBSONARE_SOURCE_DIR="${{ github.workspace }}/libsonare"
-          if ($LASTEXITCODE -ne 0) { throw "Analysis-only probe configuration failed with exit code $LASTEXITCODE" }
+            -DLIBSONARE_SOURCE_DIR="$libsonareSource" *>&1 | Tee-Object -FilePath libsonare-msvc-probe.log
+          $exitCode = $LASTEXITCODE
+          Add-Content -Path libsonare-msvc-probe.log -Value "Configure exit code: $exitCode"
+          if ($exitCode -ne 0) { exit $exitCode }
 
       - name: Build and link BPM key analysis-only probe
         shell: pwsh
         run: |
           $ErrorActionPreference = "Continue"
           cmake --build build-libsonare-msvc --config Release --target libsonare_analysis_probe --parallel *>&1 |
-            Tee-Object -FilePath libsonare-msvc-probe.log
+            Tee-Object -FilePath libsonare-msvc-probe.log -Append
           $exitCode = $LASTEXITCODE
           Add-Content -Path libsonare-msvc-probe.log -Value "Build exit code: $exitCode"
           exit $exitCode
