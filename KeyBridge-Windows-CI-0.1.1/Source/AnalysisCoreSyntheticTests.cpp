@@ -77,7 +77,7 @@ namespace
         return output;
     }
 
-    std::vector<float> makeProgression (int root, int mode, double sampleRate, double detuneCents = 0.0)
+    std::vector<float> makeProgression (int root, int mode, double sampleRate, double detuneCents = 0.0, bool includeKick = true)
     {
         constexpr double seconds = 16.0;
         const auto detuneRatio = std::pow (2.0, detuneCents / 1200.0);
@@ -105,10 +105,13 @@ namespace
             const auto characteristic = mode == 0 ? root + 11 : root + 8;
             addTone (output, sampleRate, begin, end, frequencyForMidi (60 + mod12 (characteristic)) * detuneRatio, 0.055);
         }
-        const auto kickInterval = static_cast<int> (0.5 * sampleRate);
-        for (int start = 0; start < static_cast<int> (count); start += kickInterval)
-            for (int n = 0; n < 550 && start + n < static_cast<int> (count); ++n)
-                output[static_cast<size_t> (start + n)] += static_cast<float> (0.12 * std::exp (-static_cast<double> (n) / 90.0));
+        if (includeKick)
+        {
+            const auto kickInterval = static_cast<int> (0.5 * sampleRate);
+            for (int start = 0; start < static_cast<int> (count); start += kickInterval)
+                for (int n = 0; n < 550 && start + n < static_cast<int> (count); ++n)
+                    output[static_cast<size_t> (start + n)] += static_cast<float> (0.12 * std::exp (-static_cast<double> (n) / 90.0));
+        }
         return output;
     }
 
@@ -226,18 +229,36 @@ namespace
                              root, mode, result.keyRoot, result.keyMode, result.bpmConfidence, result.keyConfidence, result.warning });
         return pass;
     }
+
+    bool checkKeyWithoutTempo (std::vector<TestRecord>& records, int root, int mode)
+    {
+        constexpr double sampleRate = 44100.0;
+        const auto result = tunerite::AnalysisCore::analyzeBeat (makeProgression (root, mode, sampleRate, 0.0, false), sampleRate);
+        const auto pass = result.keyValid && result.keyRoot == root && result.keyMode == mode && ! result.tempoValid;
+        std::cout << "No-tempo key: expected " << names[root] << (mode == 0 ? " major" : " minor")
+                  << " detected " << (result.keyRoot >= 0 ? names[result.keyRoot] : "UNKNOWN")
+                  << (result.keyMode == 0 ? " major" : result.keyMode == 1 ? " minor" : "")
+                  << " tempo valid: " << result.tempoValid << " Result: " << (pass ? "PASS" : "FAIL") << "\n";
+        records.push_back ({ "key_without_tempo_" + std::string (names[root]) + (mode == 0 ? "_major" : "_minor"), pass, 0.0, result.bpm,
+                             root, mode, result.keyRoot, result.keyMode, result.bpmConfidence, result.keyConfidence, result.warning });
+        return pass;
+    }
 }
 
-int main()
+int main (int argc, char* argv[])
 {
+    const auto keyOnly = argc == 2 && std::string (argv[1]) == "--key-only";
     std::vector<TestRecord> records;
     bool passed = true;
-    for (const auto sampleRate : { 44100.0, 48000.0 })
-        for (const auto bpm : { 45.0, 60.0, 101.0, 120.0, 200.0 })
-            passed = checkTempo (records, sampleRate, bpm) && passed;
-    passed = checkAccentedTempo (records, 44100.0, 182.0) && passed;
-    passed = checkAccentedTempo (records, 48000.0, 182.0) && passed;
-    passed = checkClippedTempo (records, 48000.0) && passed;
+    if (! keyOnly)
+    {
+        for (const auto sampleRate : { 44100.0, 48000.0 })
+            for (const auto bpm : { 45.0, 60.0, 101.0, 120.0, 200.0 })
+                passed = checkTempo (records, sampleRate, bpm) && passed;
+        passed = checkAccentedTempo (records, 44100.0, 182.0) && passed;
+        passed = checkAccentedTempo (records, 48000.0, 182.0) && passed;
+        passed = checkClippedTempo (records, 48000.0) && passed;
+    }
 
     for (int root = 0; root < 12; ++root)
         for (int mode = 0; mode < 2; ++mode)
@@ -246,6 +267,8 @@ int main()
     // Development adversarial cases: mild global detuning must not erase a clear tonic resolution.
     passed = checkKey (records, 0, 0, 22.0) && passed;
     passed = checkKey (records, 9, 1, -19.0) && passed;
+    passed = checkKeyWithoutTempo (records, 0, 0) && passed;
+    passed = checkKeyWithoutTempo (records, 0, 1) && passed;
 
     constexpr double sampleRate = 44100.0;
     const auto ambiguous = tunerite::AnalysisCore::analyzeBeat (makeAmbiguousTriad (sampleRate), sampleRate);

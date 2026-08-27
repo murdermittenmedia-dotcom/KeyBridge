@@ -649,11 +649,7 @@ namespace tunerite
         for (auto& value : tonalOnset) value = std::max (0.0, value - tonalOnsetMean * 0.40);
         result.onsetCoverage = static_cast<double> (std::count_if (onset.begin(), onset.end(), [] (double value) { return value > 0.0; })) / onset.size();
         if (result.onsetCoverage < 0.03)
-        {
             result.warning = "No stable onset activity was found for tempo analysis.";
-            appendInputQualityWarning();
-            return result;
-        }
 
         double tuningX = 0.0, tuningY = 0.0, tuningWeight = 0.0;
         for (size_t index = 0; index < tuningAngles.size(); ++index)
@@ -682,9 +678,9 @@ namespace tunerite
         if (windowTempi.empty())
         {
             result.warning = "No stable tempo candidate was found across analysis windows.";
-            appendInputQualityWarning();
-            return result;
         }
+        else
+        {
         result.usableTempoWindows = static_cast<int> (windowTempi.size());
         const auto directTempo = estimateDirectTransientTempo (samples, sampleRate);
 
@@ -709,13 +705,6 @@ namespace tunerite
                 windowCandidates.push_back ({ value.weightedBpm / value.score, value.score / std::max (1, value.count) });
         }
         std::sort (windowCandidates.begin(), windowCandidates.end(), [] (const auto& a, const auto& b) { return a.score > b.score; });
-        if (windowCandidates.empty())
-        {
-            result.warning = "No aggregate tempo candidate was found.";
-            appendInputQualityWarning();
-            return result;
-        }
-
         // Autocorrelation can prefer a slower repeated-bar period on very fast material.
         // Promote a faster integer multiple only when it is supported by the same window
         // evidence family, not merely by the direct transient path.
@@ -809,6 +798,7 @@ namespace tunerite
         result.doubleTimeBpm *= bpmOutputMultiplier;
         for (auto& candidate : result.tempoCandidates)
             candidate.bpm *= bpmOutputMultiplier;
+        }
 
         // Re-run tonal frames at a modest rate using the selected tuning and soft, non-nearest chroma binning.
         const auto transientThreshold = percentile (tonalOnset, 0.90);
