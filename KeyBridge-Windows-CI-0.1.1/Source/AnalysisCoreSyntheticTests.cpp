@@ -62,6 +62,21 @@ namespace
         return output;
     }
 
+    std::vector<float> makeAccentedClickBeat (double bpm, double seconds, double sampleRate)
+    {
+        const auto count = static_cast<size_t> (std::round (seconds * sampleRate));
+        std::vector<float> output (count, 0.0f);
+        const auto interval = std::max (1, static_cast<int> (std::round ((60.0 / bpm) * sampleRate)));
+        int beat = 0;
+        for (int start = 0; start < static_cast<int> (count); start += interval, ++beat)
+        {
+            const auto amplitude = beat % 4 == 0 ? 1.0 : 0.26;
+            for (int n = 0; n < 1200 && start + n < static_cast<int> (count); ++n)
+                output[static_cast<size_t> (start + n)] += static_cast<float> (amplitude * std::exp (-static_cast<double> (n) / 155.0));
+        }
+        return output;
+    }
+
     std::vector<float> makeProgression (int root, int mode, double sampleRate, double detuneCents = 0.0)
     {
         constexpr double seconds = 16.0;
@@ -157,6 +172,18 @@ namespace
         return pass;
     }
 
+    bool checkAccentedTempo (std::vector<TestRecord>& records, double sampleRate, double bpm)
+    {
+        const auto result = tunerite::AnalysisCore::analyzeBeat (makeAccentedClickBeat (bpm, 16.0, sampleRate), sampleRate);
+        const auto pass = result.tempoValid && std::abs (result.bpm - bpm) <= 0.25
+            && std::abs (result.bpm - bpm / 4.0) > 0.25;
+        std::cout << "Expected accented BPM: " << bpm << " Detected BPM: " << result.bpm
+                  << " Confidence: " << result.bpmConfidence << " Result: " << (pass ? "PASS" : "FAIL") << "\n";
+        records.push_back ({ "accented_downbeats_" + std::to_string (static_cast<int> (bpm)), pass, bpm, result.bpm,
+                             -1, -1, result.keyRoot, result.keyMode, result.bpmConfidence, result.keyConfidence, result.warning });
+        return pass;
+    }
+
     bool checkClippedTempo (std::vector<TestRecord>& records, double sampleRate)
     {
         auto samples = makeClickBeat (120.0, 16.0, sampleRate);
@@ -203,6 +230,8 @@ int main()
     for (const auto sampleRate : { 44100.0, 48000.0 })
         for (const auto bpm : { 101.0, 120.0, 200.0 })
             passed = checkTempo (records, sampleRate, bpm) && passed;
+    passed = checkAccentedTempo (records, 44100.0, 182.0) && passed;
+    passed = checkAccentedTempo (records, 48000.0, 182.0) && passed;
     passed = checkClippedTempo (records, 48000.0) && passed;
 
     for (int root = 0; root < 12; ++root)

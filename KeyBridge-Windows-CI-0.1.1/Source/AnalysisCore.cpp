@@ -246,8 +246,17 @@ namespace
                 for (const auto interval : intervals) deviations.push_back (std::abs (interval - medianInterval));
                 const auto stability = clamp01 (1.0 - percentile (deviations, 0.5) / std::max (1.0, medianInterval * 0.08));
                 const auto ioiScore = 0.70 + 0.30 * stability;
-                if (stability >= 0.70 && (best.bpm <= 0.0 || ioiScore >= best.score * 0.88))
-                    best = { 60.0 * onsetRate / medianInterval, ioiScore, stability };
+                const auto ioiBpm = 60.0 * onsetRate / medianInterval;
+                // Accented downbeats often recur every 2–4 beats. They are useful phase
+                // evidence, but must not replace a faster autocorrelation pulse that has
+                // already been established from the onset envelope.
+                const auto slowerRatio = best.bpm > 0.0 ? best.bpm / ioiBpm : 0.0;
+                const auto slowerMultiple = static_cast<int> (std::round (slowerRatio));
+                const auto ioiIsRepeatedBarPeriod = slowerMultiple >= 2 && slowerMultiple <= 4
+                    && std::abs (slowerRatio - slowerMultiple) < 0.04;
+                if (stability >= 0.70 && ! ioiIsRepeatedBarPeriod
+                    && (best.bpm <= 0.0 || ioiScore >= best.score * 0.88))
+                    best = { ioiBpm, ioiScore, stability };
             }
         }
         return best;
