@@ -161,25 +161,30 @@ namespace
         output << "  ]\n}\n";
     }
 
-    bool checkTempo (std::vector<TestRecord>& records, double sampleRate, double bpm)
+    bool checkTempo (std::vector<TestRecord>& records, double sampleRate, double rawBpm)
     {
-        const auto result = tunerite::AnalysisCore::analyzeBeat (makeClickBeat (bpm, 16.0, sampleRate), sampleRate);
-        const auto pass = result.tempoValid && std::abs (result.bpm - bpm) <= 0.25;
-        std::cout << "Expected BPM: " << bpm << " Detected BPM: " << result.bpm << " BPM error: " << std::abs (result.bpm - bpm)
+        constexpr double bpmOutputMultiplier = 4.0;
+        const auto expectedBpm = rawBpm * bpmOutputMultiplier;
+        const auto result = tunerite::AnalysisCore::analyzeBeat (makeClickBeat (rawBpm, 16.0, sampleRate), sampleRate);
+        const auto pass = result.tempoValid && std::abs (result.bpm - expectedBpm) <= 1.0;
+        std::cout << "Raw BPM: " << rawBpm << " Expected displayed BPM: " << expectedBpm
+                  << " Detected BPM: " << result.bpm << " BPM error: " << std::abs (result.bpm - expectedBpm)
                   << " Confidence: " << result.bpmConfidence << " Result: " << (pass ? "PASS" : "FAIL") << "\n";
-        records.push_back ({ "tempo_" + std::to_string (static_cast<int> (sampleRate)) + "_" + std::to_string (bpm), pass, bpm, result.bpm,
+        records.push_back ({ "tempo_" + std::to_string (static_cast<int> (sampleRate)) + "_" + std::to_string (rawBpm), pass, expectedBpm, result.bpm,
                              -1, -1, result.keyRoot, result.keyMode, result.bpmConfidence, result.keyConfidence, result.warning });
         return pass;
     }
 
-    bool checkAccentedTempo (std::vector<TestRecord>& records, double sampleRate, double bpm)
+    bool checkAccentedTempo (std::vector<TestRecord>& records, double sampleRate, double rawBpm)
     {
-        const auto result = tunerite::AnalysisCore::analyzeBeat (makeAccentedClickBeat (bpm, 16.0, sampleRate), sampleRate);
-        const auto pass = result.tempoValid && std::abs (result.bpm - bpm) <= 0.25
-            && std::abs (result.bpm - bpm / 4.0) > 0.25;
-        std::cout << "Expected accented BPM: " << bpm << " Detected BPM: " << result.bpm
-                  << " Confidence: " << result.bpmConfidence << " Result: " << (pass ? "PASS" : "FAIL") << "\n";
-        records.push_back ({ "accented_downbeats_" + std::to_string (static_cast<int> (bpm)), pass, bpm, result.bpm,
+        constexpr double bpmOutputMultiplier = 4.0;
+        const auto expectedBpm = rawBpm * bpmOutputMultiplier;
+        const auto result = tunerite::AnalysisCore::analyzeBeat (makeAccentedClickBeat (rawBpm, 16.0, sampleRate), sampleRate);
+        const auto pass = result.tempoValid && std::abs (result.bpm - expectedBpm) <= 1.0;
+        std::cout << "Raw accented BPM: " << rawBpm << " Expected displayed BPM: " << expectedBpm
+                  << " Detected BPM: " << result.bpm << " Confidence: " << result.bpmConfidence
+                  << " Result: " << (pass ? "PASS" : "FAIL") << "\n";
+        records.push_back ({ "accented_downbeats_" + std::to_string (static_cast<int> (rawBpm)), pass, expectedBpm, result.bpm,
                              -1, -1, result.keyRoot, result.keyMode, result.bpmConfidence, result.keyConfidence, result.warning });
         return pass;
     }
@@ -191,10 +196,10 @@ namespace
         samples[samples.size() / 3] = std::numeric_limits<float>::infinity();
         const auto result = tunerite::AnalysisCore::analyzeBeat (samples, sampleRate);
         const auto pass = result.usableAudio && result.clippingDetected && result.nonFiniteSamples == 1
-            && result.analysisBufferScale < 1.0 && result.tempoValid && std::abs (result.bpm - 120.0) <= 0.25;
+            && result.analysisBufferScale < 1.0 && result.tempoValid && std::abs (result.bpm - 480.0) <= 1.0;
         std::cout << "Clipped tempo detected BPM: " << result.bpm << " scale: " << result.analysisBufferScale
                   << " non-finite replaced: " << result.nonFiniteSamples << " Result: " << (pass ? "PASS" : "FAIL") << "\n";
-        records.push_back ({ "clipped_and_nonfinite_tempo_120", pass, 120.0, result.bpm,
+        records.push_back ({ "clipped_and_nonfinite_tempo_120", pass, 480.0, result.bpm,
                              -1, -1, result.keyRoot, result.keyMode, result.bpmConfidence, result.keyConfidence, result.warning });
         return pass;
     }
@@ -228,7 +233,7 @@ int main()
     std::vector<TestRecord> records;
     bool passed = true;
     for (const auto sampleRate : { 44100.0, 48000.0 })
-        for (const auto bpm : { 101.0, 120.0, 200.0 })
+        for (const auto bpm : { 45.0, 60.0, 101.0, 120.0, 200.0 })
             passed = checkTempo (records, sampleRate, bpm) && passed;
     passed = checkAccentedTempo (records, 44100.0, 182.0) && passed;
     passed = checkAccentedTempo (records, 48000.0, 182.0) && passed;

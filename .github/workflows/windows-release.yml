@@ -104,7 +104,7 @@ jobs:
             Assert-ReportExists $beatReportPath "beat"
             $beat = Get-Content -LiteralPath $beatReportPath -Raw | ConvertFrom-Json
             Write-Host "Beat JSON: BPM=$($beat.detected_bpm), key_root=$($beat.key_root), key_mode=$($beat.key_mode), key_confidence=$($beat.key_confidence), bpm_confidence=$($beat.bpm_confidence), key_uncertain=$($beat.key_uncertain)"
-            if ([math]::Abs($beat.detected_bpm - 120.0) -gt 0.25) { throw "Offline beat report BPM was $($beat.detected_bpm), expected 120 +/- 0.25" }
+            if ([math]::Abs($beat.detected_bpm - 480.0) -gt 1.0) { throw "Offline beat report BPM was $($beat.detected_bpm), expected normalized 480 +/- 1.0" }
             if ($beat.key_valid -ne $false -or $beat.key_uncertain -ne $true) { throw "C-E-G fixture must remain key-unknown/uncertain because one triad does not establish a unique key" }
 
             $vocalReportPath = [System.IO.Path]::GetFullPath((Join-Path $reportsDirectory "a3_220hz.json"))

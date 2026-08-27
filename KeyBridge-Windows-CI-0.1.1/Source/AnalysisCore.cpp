@@ -782,10 +782,10 @@ namespace tunerite
         result.tempoStability = clamp01 (1.0 - percentile (logPeriodDeviations, 0.5) / std::log (1.03));
 
         const auto directAgrees = ! directIsStrong
-            || tempoFamilyDistance (directTempo.bpm, result.bpm) <= std::log (1.03);
+            || tempoFamilyDistance (directTempo.bpm, primaryWindowBpm) <= std::log (1.03);
         const auto windowSupport = result.usableTempoWindows >= 2;
         const auto competingWindow = ! directPulsePromoted && windowCandidates.size() > 1
-            && tempoFamilyDistance (windowCandidates[1].bpm, result.bpm) > std::log (1.03)
+            && tempoFamilyDistance (windowCandidates[1].bpm, primaryWindowBpm) > std::log (1.03)
             && margin < 0.16;
         result.tempoAmbiguous = ! directAgrees || ! windowSupport || competingWindow;
         result.bpmConfidence = clamp01 (
@@ -799,6 +799,16 @@ namespace tunerite
         result.tempoValid = ! result.bpmUncertain;
         if (! directAgrees)
             result.warning = "Tempo estimators disagree; BPM is uncertain.";
+
+        // User-requested output normalization: the current detector's BPM values are
+        // presented in quarter-time, so every published tempo value is promoted ×4.
+        constexpr double bpmOutputMultiplier = 4.0;
+        result.bpm *= bpmOutputMultiplier;
+        result.alternativeBpm *= bpmOutputMultiplier;
+        result.halfTimeBpm *= bpmOutputMultiplier;
+        result.doubleTimeBpm *= bpmOutputMultiplier;
+        for (auto& candidate : result.tempoCandidates)
+            candidate.bpm *= bpmOutputMultiplier;
 
         // Re-run tonal frames at a modest rate using the selected tuning and soft, non-nearest chroma binning.
         const auto transientThreshold = percentile (tonalOnset, 0.90);
