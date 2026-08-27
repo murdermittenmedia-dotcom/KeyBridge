@@ -3,6 +3,7 @@
 #include <cmath>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -156,6 +157,21 @@ namespace
         return pass;
     }
 
+    bool checkClippedTempo (std::vector<TestRecord>& records, double sampleRate)
+    {
+        auto samples = makeClickBeat (120.0, 16.0, sampleRate);
+        for (auto& sample : samples) sample *= 1.65f;
+        samples[samples.size() / 3] = std::numeric_limits<float>::infinity();
+        const auto result = tunerite::AnalysisCore::analyzeBeat (samples, sampleRate);
+        const auto pass = result.usableAudio && result.clippingDetected && result.nonFiniteSamples == 1
+            && result.analysisBufferScale < 1.0 && result.tempoValid && std::abs (result.bpm - 120.0) <= 0.25;
+        std::cout << "Clipped tempo detected BPM: " << result.bpm << " scale: " << result.analysisBufferScale
+                  << " non-finite replaced: " << result.nonFiniteSamples << " Result: " << (pass ? "PASS" : "FAIL") << "\n";
+        records.push_back ({ "clipped_and_nonfinite_tempo_120", pass, 120.0, result.bpm,
+                             -1, -1, result.keyRoot, result.keyMode, result.bpmConfidence, result.keyConfidence, result.warning });
+        return pass;
+    }
+
     bool checkKey (std::vector<TestRecord>& records, int root, int mode, double detuneCents = 0.0)
     {
         constexpr double sampleRate = 44100.0;
@@ -164,7 +180,15 @@ namespace
         std::cout << "Expected key: " << names[root] << (mode == 0 ? " major" : " minor")
                   << " Detected key: " << (result.keyRoot >= 0 ? names[result.keyRoot] : "UNKNOWN")
                   << (result.keyMode == 0 ? " major" : result.keyMode == 1 ? " minor" : "")
-                  << " Key confidence: " << result.keyConfidence << " Result: " << (pass ? "PASS" : "FAIL") << "\n";
+                  << " Key confidence: " << result.keyConfidence
+                  << " Harmonic: " << result.harmonicContentSufficient
+                  << " Clarity: " << result.tonalClarity
+                  << " Agreement: " << result.tonalWindowAgreement
+                  << " Profile disagreement: " << result.profileDisagreement
+                  << " Candidates: " << (result.keyCandidates.empty() ? "none" : result.keyCandidates[0])
+                  << "," << (result.keyCandidates.size() < 2 ? "none" : result.keyCandidates[1])
+                  << "," << (result.keyCandidates.size() < 3 ? "none" : result.keyCandidates[2])
+                  << " Result: " << (pass ? "PASS" : "FAIL") << "\n";
         const auto suffix = detuneCents == 0.0 ? "" : "_detuned_" + std::to_string (static_cast<int> (detuneCents));
         records.push_back ({ "key_" + std::string (names[root]) + (mode == 0 ? "_major" : "_minor") + suffix, pass, 0.0, result.bpm,
                              root, mode, result.keyRoot, result.keyMode, result.bpmConfidence, result.keyConfidence, result.warning });
@@ -179,6 +203,7 @@ int main()
     for (const auto sampleRate : { 44100.0, 48000.0 })
         for (const auto bpm : { 101.0, 120.0, 200.0 })
             passed = checkTempo (records, sampleRate, bpm) && passed;
+    passed = checkClippedTempo (records, 48000.0) && passed;
 
     for (int root = 0; root < 12; ++root)
         for (int mode = 0; mode < 2; ++mode)

@@ -60,6 +60,12 @@ bool KeyBridgeAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts
     return input == juce::AudioChannelSet::stereo() && output == juce::AudioChannelSet::stereo();
 }
 
+tunerite::BeatAnalysisResult KeyBridgeAudioProcessor::getLastPublishedBeatAnalysisForDiagnostics() const
+{
+    std::lock_guard<std::mutex> lock (lastPublishedBeatMutex);
+    return lastPublishedBeatAnalysis;
+}
+
 void KeyBridgeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     juce::ignoreUnused (midi);
@@ -220,6 +226,11 @@ void KeyBridgeAudioProcessor::publishBeatResult (const tunerite::BeatAnalysisRes
 {
     if (generation != analysisGeneration.load (std::memory_order_acquire))
         return;
+    {
+        std::lock_guard<std::mutex> lock (lastPublishedBeatMutex);
+        lastPublishedBeatAnalysis = result;
+    }
+    lastPublishedBeatGeneration.store (generation, std::memory_order_release);
     detectedBpm.store (result.bpm, std::memory_order_relaxed);
     detectedAlternativeBpm.store (result.alternativeBpm, std::memory_order_relaxed);
     detectedKey.store (result.keyRoot, std::memory_order_relaxed);

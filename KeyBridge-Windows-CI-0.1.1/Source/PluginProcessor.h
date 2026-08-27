@@ -59,6 +59,10 @@ public:
     float getVocalVoicedPercent() const noexcept { return vocalVoicedPercent.load (std::memory_order_relaxed); }
     bool isAnalysisActive() const noexcept { return captureActive.load (std::memory_order_relaxed) || workerBusy.load (std::memory_order_relaxed); }
 
+    // Diagnostic-only snapshot. It is written by the worker after AnalysisCore finishes and must never be called by processBlock.
+    tunerite::BeatAnalysisResult getLastPublishedBeatAnalysisForDiagnostics() const;
+    std::uint64_t getLastPublishedBeatGenerationForDiagnostics() const noexcept { return lastPublishedBeatGeneration.load (std::memory_order_acquire); }
+
     void setAnalysisMode (int mode) noexcept { analysisMode.store (juce::jlimit (0, 2, mode), std::memory_order_relaxed); }
     int getAnalysisMode() const noexcept { return analysisMode.load (std::memory_order_relaxed); }
     void startFreshAnalysis() noexcept;
@@ -140,6 +144,10 @@ private:
     std::atomic<std::uint64_t> analysisGeneration { 0 };
     std::atomic<std::uint64_t> captureGeneration { 0 };
     std::atomic<std::uint64_t> completedGeneration { 0 };
+    // Worker-published diagnostic data; no audio-thread read/write is permitted.
+    mutable std::mutex lastPublishedBeatMutex;
+    tunerite::BeatAnalysisResult lastPublishedBeatAnalysis;
+    std::atomic<std::uint64_t> lastPublishedBeatGeneration { 0 };
     std::atomic<bool> captureRequested { false };
     std::atomic<bool> finishCaptureRequested { false };
     std::atomic<bool> captureActive { false };

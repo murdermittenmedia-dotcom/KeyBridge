@@ -29,6 +29,11 @@ namespace
         json << "  \"relative_mode_ambiguous\": " << (result.relativeModeAmbiguous ? "true" : "false") << ",\n";
         json << "  \"harmonic_content_sufficient\": " << (result.harmonicContentSufficient ? "true" : "false") << ",\n";
         json << "  \"clipping_detected\": " << (result.clippingDetected ? "true" : "false") << ",\n";
+        json << "  \"profile_disagreement\": " << (result.profileDisagreement ? "true" : "false") << ",\n";
+        json << "  \"non_finite_samples\": " << result.nonFiniteSamples << ",\n";
+        json << "  \"clipping_amount\": " << result.clippingAmount << ",\n";
+        json << "  \"analysis_buffer_scale\": " << result.analysisBufferScale << ",\n";
+        json << "  \"input_quality\": " << result.inputQuality << ",\n";
         json << "  \"sample_rate\": " << sampleRate << ",\n";
         json << "  \"channels\": " << channels << ",\n";
         json << "  \"duration_seconds\": " << result.durationSeconds << ",\n";
@@ -81,9 +86,12 @@ namespace
         text << "TuneRite Offline Beat Analysis\n";
         text << "Sample rate: " << sampleRate << " Hz\nChannels: " << channels << "\n";
         text << "Duration: " << result.durationSeconds << " seconds\n";
+        text << "Input quality: " << result.inputQuality << "  Source peak: " << result.peak << "  Clipping amount: " << result.clippingAmount
+             << "  Analysis-only scale: " << result.analysisBufferScale << "  Non-finite replaced: " << result.nonFiniteSamples << "\n";
         text << "BPM: " << result.bpm << "  Alternative: " << result.alternativeBpm << "  Half: " << result.halfTimeBpm << "  Double: " << result.doubleTimeBpm << "\n";
         text << "BPM confidence: " << result.bpmConfidence << "\n";
-        text << "Key root: " << result.keyRoot << "  Mode: " << (result.keyMode == 0 ? "major" : "minor") << "  Key confidence: " << result.keyConfidence << "\n";
+        text << "Key root: " << result.keyRoot << "  Mode: " << (result.keyMode == 0 ? "major" : result.keyMode == 1 ? "minor" : "unknown")
+             << "  Key confidence: " << result.keyConfidence << "  Profile disagreement: " << (result.profileDisagreement ? "true" : "false") << "\n";
         text << "Warning: " << result.warning << "\n";
         output.getSiblingFile (output.getFileNameWithoutExtension() + ".txt").replaceWithText (text);
     }

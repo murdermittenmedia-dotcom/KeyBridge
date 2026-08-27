@@ -27,6 +27,17 @@ namespace
         return values[index];
     }
 
+    double trimmedMean (std::vector<double> values, double trimFraction = 0.15)
+    {
+        if (values.empty()) return 0.0;
+        std::sort (values.begin(), values.end());
+        const auto trim = std::min (values.size() / 4, static_cast<size_t> (std::floor (values.size() * trimFraction)));
+        const auto first = values.begin() + static_cast<std::ptrdiff_t> (trim);
+        const auto last = values.end() - static_cast<std::ptrdiff_t> (trim);
+        if (first >= last) return percentile (values, 0.5);
+        return std::accumulate (first, last, 0.0) / static_cast<double> (std::distance (first, last));
+    }
+
     double midiFromFrequency (double hz, double tuningHz = 440.0)
     {
         return 69.0 + 12.0 * std::log2 (hz / tuningHz);
@@ -73,6 +84,48 @@ namespace
         }
         if (count == 0) return 1.0;
         return std::exp (logSum / count) / (linearSum / count + 1.0e-15);
+    }
+
+    struct PreparedAnalysisInput
+    {
+        std::vector<float> samples;
+        double rms = 0.0;
+        double peak = 0.0;
+        double clippingAmount = 0.0;
+        double scale = 1.0;
+        double quality = 1.0;
+        int nonFiniteSamples = 0;
+    };
+
+    // This conditioning is deliberately analysis-only. Callers retain ownership of the original audio.
+    PreparedAnalysisInput prepareAnalysisInput (const std::vector<float>& input)
+    {
+        PreparedAnalysisInput prepared;
+        prepared.samples.resize (input.size(), 0.0f);
+        if (input.empty()) return prepared;
+
+        double energy = 0.0;
+        for (size_t index = 0; index < input.size(); ++index)
+        {
+            const auto source = static_cast<double> (input[index]);
+            const auto finite = std::isfinite (source) ? source : 0.0;
+            if (! std::isfinite (source)) ++prepared.nonFiniteSamples;
+            prepared.samples[index] = static_cast<float> (finite);
+            prepared.peak = std::max (prepared.peak, std::abs (finite));
+            energy += finite * finite;
+        }
+        prepared.rms = std::sqrt (energy / static_cast<double> (input.size()));
+        prepared.clippingAmount = std::max (0.0, prepared.peak - 0.99);
+        if (prepared.peak > 0.99)
+        {
+            prepared.scale = 0.99 / prepared.peak;
+            for (auto& value : prepared.samples) value = static_cast<float> (value * prepared.scale);
+        }
+
+        const auto nonFiniteRatio = static_cast<double> (prepared.nonFiniteSamples) / static_cast<double> (input.size());
+        const auto clippingPenalty = clamp01 (prepared.clippingAmount / 0.50) * 0.35;
+        prepared.quality = clamp01 (1.0 - clippingPenalty - std::min (0.50, nonFiniteRatio * 8.0));
+        return prepared;
     }
 
     struct TempoWindow
@@ -328,6 +381,21 @@ namespace
         return result;
     }
 
+    KeyScore bestKeyForProfileFamily (const std::array<double, 12>& chroma,
+                                      const std::array<double, 12>& majorProfile,
+                                      const std::array<double, 12>& minorProfile)
+    {
+        KeyScore best;
+        for (int root = 0; root < 12; ++root)
+        {
+            const auto major = profileCorrelation (chroma, majorProfile, root);
+            const auto minor = profileCorrelation (chroma, minorProfile, root);
+            if (major > best.score) best = { root, 0, major };
+            if (minor > best.score) best = { root, 1, minor };
+        }
+        return best;
+    }
+
     void addSoftChroma (std::array<double, 12>& chroma, double midi, double weight)
     {
         const auto lower = static_cast<int> (std::floor (midi));
@@ -370,17 +438,25 @@ namespace tunerite
         rms = 0.0;
         peak = 0.0;
         if (samples.empty()) return {};
-        const auto dc = std::accumulate (samples.begin(), samples.end(), 0.0) / static_cast<double> (samples.size());
+
+        // A second finite-value guard keeps direct callers, including vocal analysis, safe.
+        double sum = 0.0;
+        for (const auto sample : samples)
+            sum += std::isfinite (static_cast<double> (sample)) ? static_cast<double> (sample) : 0.0;
+        const auto dc = sum / static_cast<double> (samples.size());
+
         std::vector<float> output (samples.size());
         double energy = 0.0;
         for (size_t index = 0; index < samples.size(); ++index)
         {
-            const auto value = static_cast<float> (samples[index] - dc);
+            const auto source = static_cast<double> (samples[index]);
+            const auto finite = std::isfinite (source) ? source : 0.0;
+            const auto value = static_cast<float> (finite - dc);
             output[index] = value;
             peak = std::max (peak, std::abs (static_cast<double> (value)));
             energy += static_cast<double> (value) * value;
         }
-        rms = std::sqrt (energy / samples.size());
+        rms = std::sqrt (energy / static_cast<double> (samples.size()));
         const auto analysisGain = std::min (8.0, 0.18 / (rms + 1.0e-12));
         for (auto& value : output) value = static_cast<float> (value * analysisGain);
         return output;
@@ -400,19 +476,37 @@ namespace tunerite
             return result;
         }
 
-        auto samples = preprocessMono (monoSamples, result.rms, result.peak);
+        const auto prepared = prepareAnalysisInput (monoSamples);
+        result.rms = prepared.rms;
+        result.peak = prepared.peak;
+        result.clippingAmount = prepared.clippingAmount;
+        result.analysisBufferScale = prepared.scale;
+        result.inputQuality = prepared.quality;
+        result.nonFiniteSamples = prepared.nonFiniteSamples;
+        result.clippingDetected = prepared.clippingAmount > 0.0;
+        double conditionedRms = 0.0, conditionedPeak = 0.0;
+        auto samples = preprocessMono (prepared.samples, conditionedRms, conditionedPeak);
         result.durationSeconds = static_cast<double> (samples.size()) / sampleRate;
-        if (result.rms < 1.0e-4)
+        const auto appendInputQualityWarning = [&result]()
+        {
+            if (result.nonFiniteSamples > 0)
+            {
+                if (! result.warning.empty()) result.warning += " ";
+                result.warning += std::to_string (result.nonFiniteSamples) + " non-finite sample(s) were replaced with zero.";
+            }
+            if (result.clippingDetected)
+            {
+                if (! result.warning.empty()) result.warning += " ";
+                result.warning += "Clipping detected; analysis copy scaled by " + std::to_string (result.analysisBufferScale) + ".";
+            }
+        };
+        if (conditionedRms < 1.0e-4)
         {
             result.warning = "Input is too quiet for beat analysis.";
+            appendInputQualityWarning();
             return result;
         }
-        if (result.peak >= 0.9995)
-        {
-            result.clippingDetected = true;
-            result.warning = "Input is clipped beyond reliable beat analysis.";
-            return result;
-        }
+        // Clipping is retained as a quality warning. It must never independently reject BPM or key analysis.
         result.usableAudio = true;
 
         constexpr int fftOrder = 11;
@@ -429,6 +523,7 @@ namespace tunerite
         {
             result.usableAudio = false;
             result.warning = "Insufficient usable analysis frames.";
+            appendInputQualityWarning();
             return result;
         }
 
@@ -450,13 +545,14 @@ namespace tunerite
                 fftData[static_cast<size_t> (index)] = samples[static_cast<size_t> (start + index)] * window[static_cast<size_t> (index)];
             fft.performFrequencyOnlyForwardTransform (fftData.data());
 
+            // Log-magnitude, multi-band spectral flux keeps a single loud band from dominating onset evidence.
             std::array<double, 3> bandEnergy {};
             for (int bin = lowBin; bin <= highBin; ++bin)
             {
                 const auto hz = bin * hzPerBin;
                 const auto magnitude = static_cast<double> (fftData[static_cast<size_t> (bin)]);
                 const auto band = hz < 180.0 ? 0 : hz < 1400.0 ? 1 : 2;
-                bandEnergy[static_cast<size_t> (band)] += magnitude;
+                bandEnergy[static_cast<size_t> (band)] += std::log1p (magnitude);
             }
             double flux = 0.0;
             for (int band = 0; band < 3; ++band)
@@ -501,6 +597,7 @@ namespace tunerite
         if (result.onsetCoverage < 0.03)
         {
             result.warning = "No stable onset activity was found for tempo analysis.";
+            appendInputQualityWarning();
             return result;
         }
 
@@ -531,6 +628,7 @@ namespace tunerite
         if (windowTempi.empty())
         {
             result.warning = "No stable tempo candidate was found across analysis windows.";
+            appendInputQualityWarning();
             return result;
         }
         result.usableTempoWindows = static_cast<int> (windowTempi.size());
@@ -572,6 +670,7 @@ namespace tunerite
         if (result.tempoCandidates.empty())
         {
             result.warning = "No aggregate tempo candidate was found.";
+            appendInputQualityWarning();
             return result;
         }
         if (result.tempoCandidates.size() > 3) result.tempoCandidates.resize (3);
@@ -611,6 +710,8 @@ namespace tunerite
             fft.performFrequencyOnlyForwardTransform (fftData.data());
             const auto flatness = safeLogFlatness (fftData, lowBin, highBin);
             if (flatness > 0.68) continue;
+            // Suppress transient/noise-like frames. Per-frame unit normalization makes the later robust
+            // aggregate insensitive to loudness; frequency weighting prevents upper partials from dominating.
             std::array<double, 12> frameChroma {};
             double frameWeight = 0.0;
             for (int bin = lowBin; bin <= highBin; ++bin)
@@ -637,18 +738,25 @@ namespace tunerite
             result.keyValid = false;
             result.keyUncertain = true;
             result.warning = "Tempo estimate available, but harmonic content is insufficient for key detection.";
+            appendInputQualityWarning();
             return result;
         }
 
-        for (const auto& frameChroma : tonalChromas)
-            for (int index = 0; index < 12; ++index)
-                result.chroma[static_cast<size_t> (index)] += frameChroma[static_cast<size_t> (index)];
-        for (auto& value : result.chroma) value /= tonalChromas.size();
+        // Robust aggregation suppresses short arrangement changes and residual percussive frames.
+        for (int pitchClass = 0; pitchClass < 12; ++pitchClass)
+        {
+            std::vector<double> values;
+            values.reserve (tonalChromas.size());
+            for (const auto& frameChroma : tonalChromas)
+                values.push_back (frameChroma[static_cast<size_t> (pitchClass)]);
+            result.chroma[static_cast<size_t> (pitchClass)] = trimmedMean (std::move (values));
+        }
         const auto energy = std::accumulate (result.chroma.begin(), result.chroma.end(), 0.0);
         if (energy <= 1.0e-10)
         {
             result.harmonicContentSufficient = false;
             result.warning = "No reliable harmonic pitch-class energy was found.";
+            appendInputQualityWarning();
             return result;
         }
         for (auto& value : result.chroma) value /= energy;
@@ -657,6 +765,9 @@ namespace tunerite
             if (value > 1.0e-12) chromaEntropy -= value * std::log (value);
         const auto pitchClassConcentration = clamp01 (1.0 - chromaEntropy / std::log (12.0));
         const auto keys = scoreKeys (result.chroma);
+        const auto krumhanslWinner = bestKeyForProfileFamily (result.chroma, krumhanslMajor, krumhanslMinor);
+        const auto temperleyWinner = bestKeyForProfileFamily (result.chroma, temperleyMajor, temperleyMinor);
+        result.profileDisagreement = krumhanslWinner.root != temperleyWinner.root || krumhanslWinner.mode != temperleyWinner.mode;
         for (int index = 0; index < 3; ++index)
         {
             result.keyCandidates.push_back (keyName (keys[static_cast<size_t> (index)].root, keys[static_cast<size_t> (index)].mode));
@@ -668,13 +779,13 @@ namespace tunerite
         for (const auto& frameChroma : tonalChromas)
             agreementSum += std::max (0.0, chromaCosine (frameChroma, result.chroma));
         result.tonalWindowAgreement = agreementSum / tonalChromas.size();
-        const auto tonalMotion = clamp01 (1.0 - result.tonalWindowAgreement);
+        // Stable harmony is valid evidence; tonal movement is retained implicitly through window agreement rather than required for validity.
         result.harmonicContentSufficient = result.tonalWindowAgreement >= 0.42
             && result.tonalClarity >= 0.12
-            && pitchClassConcentration >= 0.12
-            && tonalMotion >= 0.025;
+            && pitchClassConcentration >= 0.12;
         result.relativeModeAmbiguous = keys.front().mode != keys[1].mode && clarity < 0.08;
         result.keyConfidence = clamp01 (0.48 * result.tonalClarity + 0.32 * result.tonalWindowAgreement + 0.12 * std::min (1.0, tonalChromas.size() / 24.0) + 0.08 * result.tuningConfidence);
+        // Profile-family disagreement is reported for offline comparison; it is not itself a mathematical reason to erase an otherwise clear key.
         result.modeConfidence = clamp01 (clarity / 0.18);
         result.keyUncertain = ! result.harmonicContentSufficient || result.keyConfidence < 0.55 || result.relativeModeAmbiguous;
         result.keyValid = ! result.keyUncertain;
@@ -684,7 +795,11 @@ namespace tunerite
             result.keyMode = keys.front().mode;
         }
         if (! result.keyValid)
-            result.warning = result.harmonicContentSufficient ? "Key uncertainty: competing tonal candidates or unstable harmonic windows." : "Insufficient harmonic content for key detection.";
+            result.warning = result.harmonicContentSufficient ? "Key uncertainty: competing tonal candidates or unstable harmonic windows."
+                : "Insufficient harmonic content for key detection.";
+        else if (result.profileDisagreement)
+            result.warning = "Key detected with profile-family disagreement; verify against independent offline references.";
+        appendInputQualityWarning();
         return result;
     }
 

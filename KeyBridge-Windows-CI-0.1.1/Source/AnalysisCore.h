@@ -29,7 +29,9 @@ namespace tunerite
         bool tempoAmbiguous = false;
         bool relativeModeAmbiguous = false;
         bool harmonicContentSufficient = false;
+        // Input quality is advisory only. Clipping never independently invalidates tempo or key.
         bool clippingDetected = false;
+        bool profileDisagreement = false;
         bool tuningAssumed = true;
         double bpm = 0.0;
         double alternativeBpm = 0.0;
@@ -49,7 +51,12 @@ namespace tunerite
         double tonalWindowAgreement = 0.0;
         int usableTonalWindows = 0;
         double rms = 0.0;
+        // Peak is measured on finite source samples before any analysis-only conditioning.
         double peak = 0.0;
+        double clippingAmount = 0.0;
+        double analysisBufferScale = 1.0;
+        double inputQuality = 1.0;
+        int nonFiniteSamples = 0;
         double durationSeconds = 0.0;
         std::array<double, 12> chroma {};
         std::vector<TempoCandidate> tempoCandidates;
