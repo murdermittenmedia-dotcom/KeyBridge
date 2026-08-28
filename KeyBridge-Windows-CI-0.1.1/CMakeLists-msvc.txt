@@ -35,6 +35,7 @@ target_sources(Tunerite PRIVATE
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
     Source/AnalysisCore.cpp
+    Source/LocalReferenceAnalyzer.cpp
     Source/VocalFit.cpp
 )
 
@@ -66,6 +67,7 @@ juce_generate_juce_header(TuneriteOfflineAnalyzer)
 target_sources(TuneriteOfflineAnalyzer PRIVATE
     Source/OfflineAnalyzer.cpp
     Source/AnalysisCore.cpp
+    Source/LocalReferenceAnalyzer.cpp
 )
 
 target_link_libraries(TuneriteOfflineAnalyzer PRIVATE
@@ -110,6 +112,7 @@ target_sources(TuneriteProcessorCaptureTests PRIVATE
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
     Source/AnalysisCore.cpp
+    Source/LocalReferenceAnalyzer.cpp
     Source/VocalFit.cpp
 )
 
@@ -124,6 +127,26 @@ target_link_libraries(TuneriteProcessorCaptureTests PRIVATE
 if (MSVC)
     target_compile_options(TuneriteProcessorCaptureTests PRIVATE /W4 /permissive- /EHsc)
     set_property(TARGET TuneriteProcessorCaptureTests PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+
+add_executable(TuneriteLocalReferenceAnalyzerTests
+    Source/LocalReferenceAnalyzerTests.cpp
+    Source/LocalReferenceAnalyzer.cpp
+)
+target_compile_features(TuneriteLocalReferenceAnalyzerTests PRIVATE cxx_std_17)
+target_include_directories(TuneriteLocalReferenceAnalyzerTests PRIVATE Source)
+target_compile_definitions(TuneriteLocalReferenceAnalyzerTests PRIVATE
+    JUCE_USE_CURL=0
+    JUCE_WEB_BROWSER=0
+)
+target_link_libraries(TuneriteLocalReferenceAnalyzerTests PRIVATE
+    juce::juce_audio_formats
+    juce::juce_audio_basics
+    juce::juce_dsp
+)
+if (MSVC)
+    target_compile_options(TuneriteLocalReferenceAnalyzerTests PRIVATE /W4 /permissive- /EHsc)
+    set_property(TARGET TuneriteLocalReferenceAnalyzerTests PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
 
 add_executable(TuneriteVocalFitTests
@@ -141,3 +164,4 @@ enable_testing()
 add_test(NAME TuneriteAnalysisCoreSyntheticTests COMMAND TuneriteAnalysisCoreSyntheticTests)
 add_test(NAME TuneriteProcessorCaptureTests COMMAND TuneriteProcessorCaptureTests)
 add_test(NAME TuneriteVocalFitTests COMMAND TuneriteVocalFitTests)
+add_test(NAME TuneriteLocalReferenceAnalyzerTests COMMAND TuneriteLocalReferenceAnalyzerTests)

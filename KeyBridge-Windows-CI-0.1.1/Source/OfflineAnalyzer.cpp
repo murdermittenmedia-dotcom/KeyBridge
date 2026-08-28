@@ -1,5 +1,6 @@
 #include <JuceHeader.h>
 #include "AnalysisCore.h"
+#include "LocalReferenceAnalyzer.h"
 
 #include <fstream>
 #include <iomanip>
@@ -188,7 +189,7 @@ int main (int argc, char* argv[])
     }
 
     if (mode == "beat")
-        writeBeatReport (absoluteOutput, tunerite::AnalysisCore::analyzeBeat (mono, reader->sampleRate), reader->sampleRate, decoded.getNumChannels());
+        writeBeatReport (absoluteOutput, tunerite::LocalReferenceAnalyzer::analyzeFinalizedCapture (mono, reader->sampleRate, 0), reader->sampleRate, decoded.getNumChannels());
     else
         writeVocalReport (absoluteOutput, tunerite::AnalysisCore::analyzeVocal (mono, reader->sampleRate), reader->sampleRate, decoded.getNumChannels());
 

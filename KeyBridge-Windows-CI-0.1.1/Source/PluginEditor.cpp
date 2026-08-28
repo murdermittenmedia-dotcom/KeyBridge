@@ -593,7 +593,10 @@ void KeyBridgeAudioProcessorEditor::refreshView()
             bpmValue.setText (savedTempo ? juce::String (processor.getSavedBeatBpm(), 1) : "--", juce::dontSendNotification);
             keyValue.setText (savedKey ? keyName (processor.getSavedBeatKey(), processor.getSavedBeatMode()) : "UNCERTAIN", juce::dontSendNotification);
             const auto outcome = processor.getBeatOutcomeState();
-            bpmStatus.setText (outcome == 1 ? "STATUS: BEAT SAVED" : outcome == 2 ? "STATUS: NOT ENOUGH USABLE AUDIO" : "STATUS: NOT ANALYZED", juce::dontSendNotification);
+            const auto analyzerWarning = processor.getLastBeatAnalysisWarning();
+            bpmStatus.setText (outcome == 1 ? "STATUS: BEAT SAVED"
+                : outcome == 2 ? (analyzerWarning.isNotEmpty() ? "STATUS: " + analyzerWarning : "STATUS: NOT ENOUGH USABLE AUDIO")
+                : "STATUS: NOT ANALYZED", juce::dontSendNotification);
         }
         bpmStatus.setColour (juce::Label::textColourId, statusColour (bpmStatus.getText()));
         instructionLabel.setText ("Mute vocals and play the beat into this mixer track.", juce::dontSendNotification);

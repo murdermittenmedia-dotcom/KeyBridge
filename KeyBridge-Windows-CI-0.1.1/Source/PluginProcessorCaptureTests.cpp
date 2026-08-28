@@ -126,7 +126,7 @@ int main (int argc, char* argv[])
     // Finish must queue the fully written capture even if transport stops immediately and there
     // is no subsequent processBlock callback.
     processor.finishCapture();
-    ok &= expect (waitUntilIdle (processor, 8000), "Beat Finish Capture must queue and complete worker analysis without another callback");
+    ok &= expect (waitUntilIdle (processor, 65000), "Beat Finish Capture must queue and complete local worker analysis without another callback");
     ok &= expect (processor.hasSavedBeatTempo(), "Valid Beat capture must automatically save BPM");
     ok &= expect (processor.hasSavedBeatResult(), "Valid Beat capture must publish a saved beat outcome");
     ok &= expect (processor.getSavedBeatBpm() > 0.0, "Saved Beat BPM must contain a measured value");

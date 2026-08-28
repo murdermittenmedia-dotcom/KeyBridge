@@ -61,6 +61,7 @@ public:
 
     // Diagnostic-only snapshot. It is written by the worker after AnalysisCore finishes and must never be called by processBlock.
     tunerite::BeatAnalysisResult getLastPublishedBeatAnalysisForDiagnostics() const;
+    juce::String getLastBeatAnalysisWarning() const;
     std::uint64_t getLastPublishedBeatGenerationForDiagnostics() const noexcept { return lastPublishedBeatGeneration.load (std::memory_order_acquire); }
 
     void setAnalysisMode (int mode) noexcept { analysisMode.store (juce::jlimit (0, 2, mode), std::memory_order_relaxed); }

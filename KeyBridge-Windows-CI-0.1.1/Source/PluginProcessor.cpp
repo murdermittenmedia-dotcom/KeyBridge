@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "LocalReferenceAnalyzer.h"
 
 #include <algorithm>
 #include <cmath>
@@ -66,6 +67,12 @@ tunerite::BeatAnalysisResult KeyBridgeAudioProcessor::getLastPublishedBeatAnalys
 {
     std::lock_guard<std::mutex> lock (lastPublishedBeatMutex);
     return lastPublishedBeatAnalysis;
+}
+
+juce::String KeyBridgeAudioProcessor::getLastBeatAnalysisWarning() const
+{
+    std::lock_guard<std::mutex> lock (lastPublishedBeatMutex);
+    return lastPublishedBeatAnalysis.warning;
 }
 
 void KeyBridgeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
@@ -271,7 +278,7 @@ void KeyBridgeAudioProcessor::workerLoop()
             const auto& buffer = captureBuffers[bufferIndex];
             std::vector<float> view (buffer.begin(), buffer.begin() + juce::jmin (sampleCount, static_cast<int> (buffer.size())));
             if (mode == 0)
-                publishBeatResult (tunerite::AnalysisCore::analyzeBeat (view, sampleRate), generation);
+                publishBeatResult (tunerite::LocalReferenceAnalyzer::analyzeFinalizedCapture (view, sampleRate, generation), generation);
             else if (mode == 1)
                 publishVocalResult (tunerite::AnalysisCore::analyzeVocal (view, sampleRate), generation);
         }
