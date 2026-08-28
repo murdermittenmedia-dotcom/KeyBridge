@@ -46,9 +46,6 @@ NOTE_TO_ROOT = {
     "E": 4, "F": 5, "F#": 6, "Gb": 6, "G": 7, "Ab": 8,
     "G#": 8, "A": 9, "Bb": 10, "A#": 10, "B": 11,
 }
-MIN_CONFIDENCE = 0.15
-
-
 def finite_number(value: object) -> float | None:
     try:
         number = float(value)
@@ -103,7 +100,7 @@ def main() -> int:
 
     bpm = finite_number(basic.get("bpm"))
     bpm_confidence = normalized_confidence(basic.get("bpm_confidence"))
-    tempo_valid = has_input_evidence and bpm is not None and 40.0 <= bpm <= 300.0 and bpm_confidence >= MIN_CONFIDENCE
+    tempo_valid = has_input_evidence and bpm is not None and 40.0 <= bpm <= 300.0
     raw_candidates = basic.get("bpm_candidates", [])
     total_votes = sum(max(0, int(votes)) for candidate, votes in raw_candidates if finite_number(candidate) is not None)
     tempo_candidates = [
@@ -117,7 +114,7 @@ def main() -> int:
     parts = key_name.split() if isinstance(key_name, str) else []
     root = NOTE_TO_ROOT.get(parts[0]) if len(parts) == 2 else None
     mode = parts[1].lower() if len(parts) == 2 else ""
-    key_valid = has_input_evidence and root is not None and mode in {"major", "minor"} and key_confidence >= MIN_CONFIDENCE
+    key_valid = has_input_evidence and root is not None and mode in {"major", "minor"}
 
     payload = {
         "schema_version": 1,

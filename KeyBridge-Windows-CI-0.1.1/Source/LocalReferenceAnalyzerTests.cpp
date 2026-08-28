@@ -44,6 +44,18 @@ int main()
                     && keyOnly.keyRoot == 7 && keyOnly.keyMode == 0,
                     "valid key with uncertain BPM remains independent") && passed;
 
+    const auto lowConfidence = tunerite::LocalReferenceAnalyzer::parseJsonResult (R"json(
+        {"schema_version":1,
+         "tempo":{"valid":true,"bpm":160.0,"confidence":0.04,"candidates":[{"bpm":160.0,"score":0.04}]},
+         "key":{"valid":true,"root":8,"mode":"minor","confidence":0.03,"candidates":[{"root":8,"mode":"minor","score":0.03}]}}
+    )json");
+    passed = check (lowConfidence.tempoValid && lowConfidence.keyValid
+                    && std::abs (lowConfidence.bpm - 160.0) < 1.0e-9
+                    && lowConfidence.keyRoot == 8 && lowConfidence.keyMode == 1
+                    && std::abs (lowConfidence.bpmConfidence - 0.04) < 1.0e-9
+                    && std::abs (lowConfidence.keyConfidence - 0.03) < 1.0e-9,
+                    "low-confidence valid estimates are still published") && passed;
+
     const auto malformed = tunerite::LocalReferenceAnalyzer::parseJsonResult ("{not-json}");
     passed = check (! malformed.usableAudio && ! malformed.tempoValid && ! malformed.keyValid
                     && malformed.warning.find ("invalid JSON schema") != std::string::npos,

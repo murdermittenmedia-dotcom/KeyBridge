@@ -7,7 +7,6 @@ namespace
 {
     constexpr double minBpm = 40.0;
     constexpr double maxBpm = 300.0;
-    constexpr double minimumConfidence = 0.15;
     constexpr int analyzerTimeoutMs = 60000;
 
     struct PrivateArtifacts
@@ -163,7 +162,7 @@ namespace tunerite
         if (tempoValid)
         {
             double bpm = 0.0;
-            if (! getObjectFiniteNumber (tempo, "bpm", bpm) || bpm < minBpm || bpm > maxBpm || tempoConfidence < minimumConfidence)
+            if (! getObjectFiniteNumber (tempo, "bpm", bpm) || bpm < minBpm || bpm > maxBpm)
             {
                 result.warning = "Local analyzer returned an invalid BPM result.";
                 return result;
@@ -182,7 +181,7 @@ namespace tunerite
             int rootIndex = -1;
             const auto modeText = key->getProperty ("mode").toString().toLowerCase();
             if (! getObjectInt (key, "root", rootIndex) || rootIndex < 0 || rootIndex > 11
-                || (modeText != "major" && modeText != "minor") || keyConfidence < minimumConfidence)
+                || (modeText != "major" && modeText != "minor"))
             {
                 result.warning = "Local analyzer returned an invalid key result.";
                 result.keyValid = false;
