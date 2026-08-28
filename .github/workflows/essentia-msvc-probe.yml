@@ -1,0 +1,51 @@
+name: Essentia MSVC BPM Key Probe
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: windows-2022
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout temporary probe branch
+        uses: actions/checkout@v4
+
+      - name: Checkout pinned Essentia source
+        uses: actions/checkout@v4
+        with:
+          repository: MTG/essentia
+          ref: 66a890f285d0e1988155c12d17a2068e406cdd90
+          path: essentia
+          fetch-depth: 1
+
+      - name: Configure isolated BPM key source probe with MSVC x64
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Continue"
+          $essentiaSource = (Resolve-Path "essentia").Path.Replace("\", "/")
+          cmake -S probes/essentia-msvc-analysis -B build-essentia-msvc -G "Visual Studio 17 2022" -A x64 `
+            -DESSENTIA_SOURCE_DIR="$essentiaSource" *>&1 | Tee-Object -FilePath essentia-msvc-probe.log
+          $exitCode = $LASTEXITCODE
+          Add-Content -Path essentia-msvc-probe.log -Value "Configure exit code: $exitCode"
+          if ($exitCode -ne 0) { exit $exitCode }
+
+      - name: Build Essentia BPM key source probe
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Continue"
+          cmake --build build-essentia-msvc --config Release --target essentia_bpm_key_probe --parallel *>&1 |
+            Tee-Object -FilePath essentia-msvc-probe.log -Append
+          $exitCode = $LASTEXITCODE
+          Add-Content -Path essentia-msvc-probe.log -Value "Build exit code: $exitCode"
+          exit $exitCode
+
+      - name: Upload Essentia MSVC probe log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: essentia-msvc-bpm-key-probe-log
+          path: essentia-msvc-probe.log
+          if-no-files-found: error
