@@ -166,7 +166,7 @@ jobs:
               Assert-ReportExists $rejectionReportPath $rejectionCase.label
               $rejection = Get-Content -LiteralPath $rejectionReportPath -Raw | ConvertFrom-Json
               Write-Host "$($rejectionCase.label) JSON: usable_audio=$($rejection.usable_audio), BPM=$($rejection.detected_bpm), key_uncertain=$($rejection.key_uncertain), bpm_uncertain=$($rejection.bpm_uncertain), warning=$($rejection.warning)"
-              if ($rejection.usable_audio -ne $false -or $rejection.detected_bpm -ne 0 -or $rejection.key_uncertain -ne $true -or $rejection.bpm_uncertain -ne $true) {
+              if ($rejection.detected_bpm -ne 0 -or $rejection.key_valid -ne $false -or $rejection.tempo_valid -ne $false -or $rejection.key_uncertain -ne $true -or $rejection.bpm_uncertain -ne $true) {
                 throw "$($rejectionCase.label) must be rejected without a BPM/key result"
               }
             }
