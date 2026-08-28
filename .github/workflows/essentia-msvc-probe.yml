@@ -1,7 +1,10 @@
 name: Essentia MSVC BPM Key Probe
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: {}
+  push:
+    branches:
+      - probe/essentia-msvc-analysis
 
 jobs:
   probe:
@@ -20,6 +23,22 @@ jobs:
           ref: 66a890f285d0e1988155c12d17a2068e406cdd90
           path: essentia
           fetch-depth: 1
+
+      - name: Generate Essentia version header from pinned revision
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = (Get-Content -LiteralPath "essentia/VERSION" -Raw).Trim()
+          $gitSha = (git -C essentia describe --dirty --always).Trim()
+          $header = @"
+#ifndef VERSION_H_
+#define VERSION_H_
+#define ESSENTIA_VERSION "$version"
+#define ESSENTIA_GIT_SHA "$gitSha"
+#endif /* VERSION_H_ */
+"@
+          Set-Content -LiteralPath "essentia/src/version.h" -Value $header -Encoding utf8NoBOM
+          if (!(Test-Path -LiteralPath "essentia/src/version.h" -PathType Leaf)) { throw "Essentia version.h was not generated" }
 
       - name: Configure isolated BPM key source probe with MSVC x64
         shell: pwsh
