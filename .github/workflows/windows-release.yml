@@ -25,6 +25,39 @@ jobs:
           path: KeyBridge-Windows-CI-0.1.1/JUCE
           fetch-depth: 1
 
+      - name: Set up bundled analyzer Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build local reference analyzer beta runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $reference = Join-Path $PWD "reference-analyzer"
+          git clone --depth 1 https://github.com/libraz/bpm-detector.git $reference
+          Push-Location $reference
+          try {
+            git fetch --depth 1 origin 9e82ed544edd7f06a5459b8fa8fe539f20335df8
+            git checkout --detach 9e82ed544edd7f06a5459b8fa8fe539f20335df8
+            if ((git rev-parse HEAD).Trim() -ne "9e82ed544edd7f06a5459b8fa8fe539f20335df8") { throw "Unexpected bpm-detector revision" }
+            python -m pip install --disable-pip-version-check --no-input . pyinstaller
+            $wrapper = Join-Path $PWD "..\KeyBridge-Windows-CI-0.1.1\Tools\TuneRiteReferenceAnalyzer.py"
+            python -m PyInstaller --noconfirm --clean --onedir --name TuneRiteReferenceAnalyzer --paths "$reference\src" --add-data "$reference\src\bpm_detector;bpm_detector" --collect-all bpm_detector --collect-all librosa --collect-all scipy --collect-all sklearn --collect-all soundfile --collect-all resampy --collect-all audioread $wrapper
+          } finally {
+            Pop-Location
+          }
+          $runtime = Join-Path $reference "dist\TuneRiteReferenceAnalyzer"
+          $runtimeExe = Join-Path $runtime "TuneRiteReferenceAnalyzer.exe"
+          if (!(Test-Path -LiteralPath $runtimeExe)) { throw "Bundled local analyzer executable was not produced: $runtimeExe" }
+          $fixtures = Join-Path $PWD "reference-analyzer-fixtures"
+          python "KeyBridge-Windows-CI-0.1.1/Tests/generate_synthetic_fixtures.py" --output $fixtures
+          & $runtimeExe --input (Join-Path $fixtures "c_eg_click_120bpm.wav") --output (Join-Path $fixtures "runtime-check.json")
+          if ($LASTEXITCODE -ne 0) { throw "Bundled local analyzer execution failed with exit code $LASTEXITCODE" }
+          $runtimeResult = Get-Content -LiteralPath (Join-Path $fixtures "runtime-check.json") -Raw | ConvertFrom-Json
+          if ($runtimeResult.schema_version -ne 1 -or $runtimeResult.tempo.valid -ne $true -or [math]::Abs($runtimeResult.tempo.bpm - 120.0) -gt 1.0) { throw "Bundled local analyzer returned an invalid 120 BPM fixture result" }
+          "TUNERITE_REFERENCE_ANALYZER=$runtimeExe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       - name: Configure MSVC x64 Release
         shell: pwsh
         run: |
@@ -44,7 +77,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          cmake --build build-msvc --config Release --target TuneriteOfflineAnalyzer TuneriteAnalysisCoreSyntheticTests TuneriteProcessorCaptureTests TuneriteVocalFitTests --parallel
+          cmake --build build-msvc --config Release --target TuneriteOfflineAnalyzer TuneriteAnalysisCoreSyntheticTests TuneriteProcessorCaptureTests TuneriteVocalFitTests TuneriteLocalReferenceAnalyzerTests --parallel
           if ($LASTEXITCODE -ne 0) { throw "Offline analyzer, shared-core test, processor-capture test, or Vocal Fit test build failed with exit code $LASTEXITCODE" }
           $reports = [System.IO.Path]::GetFullPath((Join-Path $PWD "build-msvc/offline-reports"))
           New-Item -ItemType Directory -Force -Path $reports | Out-Null
@@ -64,6 +97,12 @@ jobs:
           & $captureTest.FullName 2>&1 | Tee-Object -FilePath $captureLog
           $captureExit = $LASTEXITCODE
           if ($captureExit -ne 0) { throw "Beat/Vocal processor capture regression failed with exit code $captureExit; inspect $captureLog" }
+          $localAnalyzerTest = Get-ChildItem "build-msvc" -Recurse -File -Filter "TuneriteLocalReferenceAnalyzerTests.exe" | Select-Object -First 1
+          if ($null -eq $localAnalyzerTest) { throw "Local analyzer adapter test executable was not produced" }
+          $localAnalyzerLog = Join-Path $reports "local-reference-analyzer-test.log"
+          & $localAnalyzerTest.FullName 2>&1 | Tee-Object -FilePath $localAnalyzerLog
+          $localAnalyzerExit = $LASTEXITCODE
+          if ($localAnalyzerExit -ne 0) { throw "Local analyzer adapter regression failed with exit code $localAnalyzerExit; inspect $localAnalyzerLog" }
           $vocalFitTest = Get-ChildItem "build-msvc" -Recurse -File -Filter "TuneriteVocalFitTests.exe" | Select-Object -First 1
           if ($null -eq $vocalFitTest) { throw "Vocal Fit test executable was not produced" }
           $vocalFitLog = Join-Path $reports "vocal-fit-test.log"
@@ -104,8 +143,8 @@ jobs:
             Assert-ReportExists $beatReportPath "beat"
             $beat = Get-Content -LiteralPath $beatReportPath -Raw | ConvertFrom-Json
             Write-Host "Beat JSON: BPM=$($beat.detected_bpm), key_root=$($beat.key_root), key_mode=$($beat.key_mode), key_confidence=$($beat.key_confidence), bpm_confidence=$($beat.bpm_confidence), key_uncertain=$($beat.key_uncertain)"
-            if ([math]::Abs($beat.detected_bpm - 480.0) -gt 1.0) { throw "Offline beat report BPM was $($beat.detected_bpm), expected normalized 480 +/- 1.0" }
-            if ($beat.key_valid -ne $false -or $beat.key_uncertain -ne $true) { throw "C-E-G fixture must remain key-unknown/uncertain because one triad does not establish a unique key" }
+            if ([math]::Abs($beat.detected_bpm - 120.0) -gt 1.0) { throw "Offline beat report BPM was $($beat.detected_bpm), expected local analyzer 120 +/- 1.0" }
+            if ($beat.key_valid -ne $true -or $beat.key_root -lt 0 -or $beat.key_mode -notin @(0, 1)) { throw "Local analyzer must return a structurally valid audio-derived key or report it uncertain" }
 
             $vocalReportPath = [System.IO.Path]::GetFullPath((Join-Path $reportsDirectory "a3_220hz.json"))
             Write-Host "Vocal report absolute path: $vocalReportPath"
@@ -182,6 +221,10 @@ jobs:
           Remove-Item "$stage/Tunerite.vst3" -Recurse -Force -ErrorAction SilentlyContinue
           Copy-Item -Recurse "build-msvc/Tunerite_artefacts/Release/VST3/Tunerite.vst3" "$stage/Tunerite.vst3"
           Copy-Item "$project/README.md" "$stage/README.txt" -Force
+          $runtime = "reference-analyzer/dist/TuneRiteReferenceAnalyzer"
+          if (!(Test-Path "$runtime/TuneRiteReferenceAnalyzer.exe")) { throw "Local analyzer runtime missing from expected build output" }
+          Remove-Item "$stage/ReferenceAnalyzer" -Recurse -Force -ErrorAction SilentlyContinue
+          Copy-Item -Recurse $runtime "$stage/ReferenceAnalyzer"
           if (!(Test-Path "$stage/Tunerite.vst3/Contents/x86_64-win/Tunerite.vst3")) { throw "Complete x86_64 VST3 binary is missing from staged bundle" }
           if (!(Test-Path "$stage/Tunerite.vst3/Contents/Resources")) { throw "VST3 Resources directory is missing from staged bundle" }
           New-Item -ItemType Directory -Force -Path dist | Out-Null

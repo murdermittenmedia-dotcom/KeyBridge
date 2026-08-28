@@ -24,9 +24,11 @@ UninstallDisplayName={#MyAppName} by {#MyAppPublisher}
 [Files]
 Source: "stage\Tunerite.vst3\*"; DestDir: "{autopf}\Common Files\VST3\Tunerite.vst3"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "stage\README.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "stage\ReferenceAnalyzer\*"; DestDir: "{commonappdata}\Murder Mitten Media\TuneRite"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{autopf}\Common Files\VST3\Tunerite.vst3"
+Type: filesandordirs; Name: "{commonappdata}\Murder Mitten Media\TuneRite"
 
 [Messages]
 FinishedLabel=TuneRite by Murder Mitten Media has been installed. Restart FL Studio and rescan plug-ins if it does not appear immediately.

@@ -10,11 +10,12 @@ namespace
     constexpr std::array<const char*, 12> noteNames { { "C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B" } };
     constexpr std::array<int, 7> majorScale { { 0, 2, 4, 5, 7, 9, 11 } };
     constexpr std::array<int, 7> minorScale { { 0, 2, 3, 5, 7, 8, 10 } };
-
-    juce::Colour colourFromArgb (std::uint32_t argb)
-    {
-        return juce::Colour (argb);
-    }
+    const juce::Colour red { 0xffff3946 };
+    const juce::Colour dimRed { 0xffa2101a };
+    const juce::Colour charcoal { 0xff0b0b0d };
+    const juce::Colour panel { 0xff101013 };
+    const juce::Colour silver { 0xffe9e9ec };
+    const juce::Colour muted { 0xff96969d };
 
     juce::String confidenceText (float confidence)
     {
@@ -27,6 +28,30 @@ namespace
         for (const auto* value : values)
             box.addItem (value, id++);
     }
+
+    void drawHardwarePanel (juce::Graphics& g, juce::Rectangle<float> bounds, bool active = false)
+    {
+        g.setColour (panel);
+        g.fillRoundedRectangle (bounds, 10.0f);
+        g.setColour ((active ? red : juce::Colour (0xff49494e)).withAlpha (active ? 0.88f : 0.78f));
+        g.drawRoundedRectangle (bounds.reduced (0.5f), 10.0f, active ? 1.35f : 0.8f);
+        if (active)
+        {
+            g.setColour (red.withAlpha (0.13f));
+            g.drawRoundedRectangle (bounds.expanded (3.0f), 12.0f, 3.5f);
+        }
+    }
+
+    void drawMeter (juce::Graphics& g, juce::Rectangle<float> bounds, float percentage)
+    {
+        g.setColour (juce::Colour (0xff050506));
+        g.fillRoundedRectangle (bounds, bounds.getHeight() * 0.5f);
+        g.setColour (juce::Colour (0xff48484d));
+        g.drawRoundedRectangle (bounds, bounds.getHeight() * 0.5f, 0.7f);
+        const auto filled = bounds.withWidth (bounds.getWidth() * juce::jlimit (0.0f, 1.0f, percentage));
+        g.setColour (red);
+        g.fillRoundedRectangle (filled, bounds.getHeight() * 0.5f);
+    }
 }
 
 KeyBridgeAudioProcessorEditor::KeyBridgeAudioProcessorEditor (KeyBridgeAudioProcessor& p)
@@ -34,134 +59,123 @@ KeyBridgeAudioProcessorEditor::KeyBridgeAudioProcessorEditor (KeyBridgeAudioProc
 {
     setOpaque (true);
     brandLogo = juce::ImageCache::getFromMemory (BinaryData::MurderMittenMediaLogo_png,
-                                                 BinaryData::MurderMittenMediaLogo_pngSize);
+                                                  BinaryData::MurderMittenMediaLogo_pngSize);
     setResizable (true, true);
-    setResizeLimits (1000, 650, 1800, 1200);
-    setSize (1280, 780);
+    setResizeLimits (1100, 720, 1800, 1120);
+    setSize (1420, 820);
 
-    addLabel (title, 24.0f, juce::Justification::centredLeft, juce::Colours::white);
-    addLabel (subtitle, 11.0f, juce::Justification::centredLeft, juce::Colour (0xffaab7c6));
-    addLabel (inputStatus, 11.0f, juce::Justification::centredRight, juce::Colour (0xffd9e4ee));
-    addLabel (analysisStatus, 11.0f, juce::Justification::centredRight, juce::Colour (0xffd9e4ee));
-    addLabel (projectBpmLabel, 11.0f, juce::Justification::centredRight, juce::Colour (0xff8c9aaa));
-    addLabel (workflowLabel, 11.0f, juce::Justification::centredLeft, juce::Colour (0xff9bb3c9));
-    addLabel (instructionLabel, 13.0f, juce::Justification::centredLeft, juce::Colours::white);
-    addLabel (visualStatusLabel, 11.0f, juce::Justification::centredLeft, juce::Colour (0xffafbecd));
-    addLabel (meterCaption, 10.0f, juce::Justification::centredRight, juce::Colour (0xff9baaba));
+    addLabel (title, 31.0f, juce::Justification::centredLeft, silver);
+    addLabel (subtitle, 12.0f, juce::Justification::centredLeft, muted);
+    addLabel (analysisStatus, 11.0f, juce::Justification::centredRight, muted);
+    addLabel (footerStatus, 11.0f, juce::Justification::centredLeft, muted);
 
-    for (auto* label : { &bpmTitle, &keyTitle, &vocalTitle, &recommendationTitle })
-        addLabel (*label, 11.0f, juce::Justification::centredLeft, juce::Colour (0xffa7bacb));
-    for (auto* label : { &bpmValue, &keyValue, &vocalValue, &recommendationValue })
-        addLabel (*label, 29.0f, juce::Justification::centredLeft, juce::Colours::white);
-    for (auto* label : { &bpmDetail, &keyDetail, &keyNotes, &vocalDetail, &recommendationDetail })
-        addLabel (*label, 11.0f, juce::Justification::centredLeft, juce::Colour (0xffd7e1ea));
-    for (auto* label : { &bpmStatus, &keyStatus, &vocalStatus, &recommendationStatus })
-        addLabel (*label, 10.0f, juce::Justification::centredLeft, juce::Colour (0xff9eb0c1));
+    for (auto* label : { &bpmCaption, &keyCaption, &confidenceCaption, &targetGenderCaption,
+                         &targetGenreCaption, &targetMoodCaption, &summaryKeyCaption,
+                         &summaryScaleCaption, &similarNotesCaption, &inputTypeCaption,
+                         &summaryConfidenceCaption, &settingsHeading, &inKeyHeading,
+                         &lowestCaption, &comfortCaption, &guidanceHeading })
+        addLabel (*label, 11.0f, juce::Justification::centredLeft, red);
 
-    title.setText ("TuneRite", juce::dontSendNotification);
-    subtitle.setText ("by Murder Mitten Media | Audio Analysis Assistant", juce::dontSendNotification);
-    bpmTitle.setText ("AUDIO BPM", juce::dontSendNotification);
-    keyTitle.setText ("KEY / SCALE", juce::dontSendNotification);
-    vocalTitle.setText ("VOCAL ANALYSIS", juce::dontSendNotification);
-    recommendationTitle.setText ("AUTO-TUNE STARTING POINT", juce::dontSendNotification);
+    for (auto* label : { &bpmValue, &keyValue, &scaleValue, &confidenceValue,
+                         &summaryKeyValue, &summaryScaleValue, &similarNotesValue,
+                         &inputTypeValue, &summaryConfidenceValue, &lowestValue, &comfortValue })
+        addLabel (*label, 25.0f, juce::Justification::centredLeft, silver);
 
-    for (auto* button : { &beatModeButton, &vocalModeButton, &reviewModeButton, &analyzeButton, &stopButton,
-                          &saveButton, &clearButton, &copyBpmButton, &copyReportButton, &copySettingsButton,
-                          &resetButton, &appearanceButton, &closeAppearanceButton, &saveThemeButton, &resetThemeButton })
+    addLabel (inKeyNotes, 17.0f, juce::Justification::centredLeft, silver);
+    addLabel (guidanceText, 13.0f, juce::Justification::topLeft, juce::Colour (0xffcfcfd3));
+    guidanceText.setJustificationType (juce::Justification::topLeft);
+
+    for (auto& label : settingCaptions)
+        addLabel (label, 10.0f, juce::Justification::centred, muted);
+    for (auto& label : settingValues)
+        addLabel (label, 27.0f, juce::Justification::centred, silver);
+
+    bpmCaption.setText ("BPM  (i)", juce::dontSendNotification);
+    keyCaption.setText ("KEY / SCALE  (i)", juce::dontSendNotification);
+    confidenceCaption.setText ("CONFIDENCE  (i)", juce::dontSendNotification);
+    targetGenderCaption.setText ("GENDER  (i)", juce::dontSendNotification);
+    targetGenreCaption.setText ("GENRE  (i)", juce::dontSendNotification);
+    targetMoodCaption.setText ("MOOD  (i)", juce::dontSendNotification);
+    summaryKeyCaption.setText ("DETECTED KEY  (i)", juce::dontSendNotification);
+    summaryScaleCaption.setText ("SCALE  (i)", juce::dontSendNotification);
+    similarNotesCaption.setText ("SIMILAR NOTES  (i)", juce::dontSendNotification);
+    inputTypeCaption.setText ("INPUT TYPE  (i)", juce::dontSendNotification);
+    summaryConfidenceCaption.setText ("CONFIDENCE  (i)", juce::dontSendNotification);
+    settingsHeading.setText ("RECOMMENDED AUTO-TUNE SETTINGS", juce::dontSendNotification);
+    inKeyHeading.setText ("IN KEY NOTES", juce::dontSendNotification);
+    lowestCaption.setText ("LOWEST NOTE  (i)", juce::dontSendNotification);
+    comfortCaption.setText ("COMFORT ZONE  (i)", juce::dontSendNotification);
+    guidanceHeading.setText ("QUICK GUIDANCE", juce::dontSendNotification);
+    const std::array<const char*, 6> settingNames { { "KEY  (i)", "SCALE  (i)", "RETUNE SPEED  (i)", "HUMANIZE  (i)", "FLEX TUNE  (i)", "FORMANT  (i)" } };
+    for (size_t index = 0; index < settingNames.size(); ++index)
+        settingCaptions[index].setText (settingNames[index], juce::dontSendNotification);
+
+    for (auto* button : { &analyzePageButton, &recommendationsPageButton, &helpButton,
+                          &beatInputButton, &vocalInputButton, &combinedInputButton,
+                          &analyzeButton, &clearButton, &copySettingsButton })
         addButton (*button, button->getButtonText());
 
-    beatModeButton.setClickingTogglesState (true);
-    vocalModeButton.setClickingTogglesState (true);
-    reviewModeButton.setClickingTogglesState (true);
-    beatModeButton.onClick = [this] { setMode (0); };
-    vocalModeButton.onClick = [this] { setMode (1); };
-    reviewModeButton.onClick = [this] { setMode (2); };
+    analyzePageButton.onClick = [this] { setPage (0); };
+    recommendationsPageButton.onClick = [this] { setPage (1); };
+    helpButton.setTooltip ("TuneRite reads routed audio only. Analyze a Beat or Vocal capture, then copy recommendation-only Auto-Tune starting settings.");
+    beatInputButton.setTooltip ("Capture routed beat audio. Key and BPM are measured from audio, not host tempo.");
+    vocalInputButton.setTooltip ("Capture isolated vocal audio. Vocal evidence informs recommendation settings only.");
+    combinedInputButton.setTooltip ("Open recommendations from independently saved beat and vocal results. It does not analyze a mixed signal for vocal range.");
+    beatInputButton.onClick = [this] { selectInput (0); };
+    vocalInputButton.onClick = [this] { selectInput (1); };
+    combinedInputButton.onClick = [this] { selectInput (2); };
     analyzeButton.onClick = [this]
     {
-        if (processor.getAnalysisMode() != 2 && processor.getCaptureState() == 2)
-            processor.finishCapture();
-        else
-            processor.startFreshAnalysis();
-    };
-    stopButton.onClick = [this] { processor.finishCapture(); };
-    saveButton.onClick = [this]
-    {
-        if (processor.getAnalysisMode() == 0) processor.saveBeatResult();
-        else if (processor.getAnalysisMode() == 1) processor.saveVocalResult();
-        refreshView();
+        if (selectedInput == 2) { setPage (1); return; }
+        if (processor.getCaptureState() == 2) processor.finishCapture();
+        else processor.startFreshAnalysis();
     };
     clearButton.onClick = [this]
     {
-        if (processor.getAnalysisMode() == 0) processor.clearBeatResult();
-        else if (processor.getAnalysisMode() == 1) processor.clearVocalResult();
+        if (selectedInput == 0) processor.clearBeatResult();
+        else if (selectedInput == 1) processor.clearVocalResult();
+        else processor.resetAllResults();
         refreshView();
     };
-    copyBpmButton.onClick = [this] { copyDetectedBpm(); };
-    copyReportButton.onClick = [this] { copyEngineerReport(); };
     copySettingsButton.onClick = [this] { copySettings(); };
-    resetButton.onClick = [this] { processor.resetAllResults(); refreshView(); };
-    appearanceButton.onClick = [this] { appearanceOpen = true; resized(); repaint(); };
-    closeAppearanceButton.onClick = [this] { appearanceOpen = false; resized(); repaint(); };
-    saveThemeButton.onClick = [this] { saveAppearance(); };
-    resetThemeButton.onClick = [this] { processor.resetAppearance(); refreshAppearance(); };
 
-    addOptions (profileBox, { "Auto range", "Male hint", "Female hint", "Custom" });
-    addOptions (genreBox, { "Rap", "Melodic rap", "Trap", "R&B", "Pop", "Gospel", "Soul", "Hip-hop" });
-    addOptions (deliveryBox, { "Rap", "Melodic", "Sung", "Spoken", "Chant" });
-    addOptions (vibeBox, { "Natural", "Hard tune", "Dark", "Emotional", "Energetic", "Romantic", "Aggressive", "Laid-back" });
+    addOptions (profileBox, { "Male", "Female" });
+    addOptions (genreBox, { "Rap", "Melodic Rap", "R&B", "Pop", "Trap", "Drill", "Rock", "Alternative" });
+    addOptions (vibeBox, { "Melodic", "Natural", "Aggressive", "Emotional", "Smooth", "Energetic" });
     profileBox.setSelectedId (1, juce::dontSendNotification);
-    genreBox.setSelectedId (3, juce::dontSendNotification);
-    deliveryBox.setSelectedId (2, juce::dontSendNotification);
+    genreBox.setSelectedId (1, juce::dontSendNotification);
     vibeBox.setSelectedId (1, juce::dontSendNotification);
-    for (auto* box : { &profileBox, &genreBox, &deliveryBox, &vibeBox })
+    for (auto* box : { &profileBox, &genreBox, &vibeBox })
     {
-        box->setTooltip ("A user preference that affects recommendation style only. It never changes measured key or BPM.");
+        box->setColour (juce::ComboBox::backgroundColourId, charcoal);
+        box->setColour (juce::ComboBox::outlineColourId, juce::Colour (0xff4a4a50));
+        box->setColour (juce::ComboBox::textColourId, silver);
+        box->setColour (juce::ComboBox::arrowColourId, red);
         box->onChange = [this] { refreshView(); };
         addAndMakeVisible (*box);
     }
-
-    addOptions (themeBox, { "Cyan", "Violet", "Blue", "Green", "Amber", "Monochrome" });
-    addOptions (colourTargetBox, { "Accent", "Panel", "Background" });
-    themeBox.setSelectedId (1, juce::dontSendNotification);
-    colourTargetBox.setSelectedId (1, juce::dontSendNotification);
-    themeBox.onChange = [this] { applyThemePreset(); };
-    colourTargetBox.onChange = [this] { colourSelector.setCurrentColour (colourTargetBox.getSelectedId() == 1 ? accentColour() : colourTargetBox.getSelectedId() == 2 ? panelColour() : backgroundColour()); };
-    opacitySlider.setRange (0.72, 1.0, 0.01);
-    glowSlider.setRange (0.0, 1.0, 0.01);
-    opacitySlider.onValueChange = [this] { applyColourSelector(); };
-    glowSlider.onValueChange = [this] { applyColourSelector(); };
-    compactLayoutToggle.onClick = [this] { applyColourSelector(); resized(); };
-    colourSelector.addChangeListener (this);
-    for (auto* component : { static_cast<juce::Component*> (&themeBox), static_cast<juce::Component*> (&colourTargetBox), static_cast<juce::Component*> (&opacitySlider), static_cast<juce::Component*> (&glowSlider), static_cast<juce::Component*> (&compactLayoutToggle), static_cast<juce::Component*> (&colourSelector) })
-        addAndMakeVisible (*component);
-    addLabel (appearanceTitle, 16.0f, juce::Justification::centredLeft, juce::Colours::white);
-    for (auto* label : { &themeCaption, &colourTargetCaption, &opacityCaption, &glowCaption, &layoutCaption })
-        addLabel (*label, 10.0f, juce::Justification::centredLeft, juce::Colour (0xffaab7c6));
-    appearanceTitle.setText ("APPEARANCE", juce::dontSendNotification);
-    setCaption (themeCaption, "THEME");
-    setCaption (colourTargetCaption, "CUSTOM COLOUR TARGET");
-    setCaption (opacityCaption, "PANEL OPACITY");
-    setCaption (glowCaption, "GLOW INTENSITY");
-    setCaption (layoutCaption, "LAYOUT");
-
-    bpmValue.setTooltip ("Audio-derived tempo. Project BPM is separate reference metadata.");
-    keyValue.setTooltip ("TuneRite withholds a scale when key confidence is inadequate.");
-    vocalValue.setTooltip ("Measured stable note when voiced pitch is valid. No vocal setting is saved from an invalid result.");
-    recommendationValue.setTooltip ("Starting settings only. TuneRite does not control Auto-Tune directly.");
+    profileBox.setTooltip ("Helps TuneRite tailor recommendations. It never changes measured musical key or BPM.");
+    genreBox.setTooltip ("Changes recommendation style only. It never changes measured musical key or BPM.");
+    vibeBox.setTooltip ("Changes recommendation style only. It never changes measured musical key or BPM.");
+    similarNotesValue.setTooltip ("Scale notes near the detected tonal center that may work well melodically.");
+    settingCaptions[2].setTooltip ("Suggested Auto-Tune correction speed. Lower values create faster, harder tuning.");
+    settingCaptions[3].setTooltip ("Helps sustained notes retain more natural pitch movement.");
+    settingCaptions[4].setTooltip ("Allows notes closer to the correct pitch to remain less corrected.");
+    settingCaptions[5].setTooltip ("Preserves vocal character when pitch correction is applied.");
+    lowestValue.setTooltip ("Lowest stable vocal note detected during vocal analysis.");
+    comfortValue.setTooltip ("Approximate pitch area where the vocal spent the most usable time.");
 
     processor.setAnalysisMode (0);
-    refreshAppearance();
-    setMode (0);
+    selectInput (0);
     juce::MessageManager::callAsync ([editor = juce::Component::SafePointer<KeyBridgeAudioProcessorEditor> (this)]
     {
-        if (editor != nullptr)
-            editor->ensureUiTimerRunning();
+        if (editor != nullptr) editor->ensureUiTimerRunning();
     });
 }
 
 void KeyBridgeAudioProcessorEditor::addLabel (juce::Label& label, float size, juce::Justification justification, juce::Colour colour)
 {
-    label.setFont (juce::Font (size, juce::Font::bold));
+    label.setFont (juce::Font (juce::FontOptions (size, juce::Font::bold)));
     label.setJustificationType (justification);
     label.setColour (juce::Label::textColourId, colour);
     label.setInterceptsMouseClicks (false, false);
@@ -171,35 +185,56 @@ void KeyBridgeAudioProcessorEditor::addLabel (juce::Label& label, float size, ju
 void KeyBridgeAudioProcessorEditor::addButton (juce::TextButton& button, const juce::String& text)
 {
     button.setButtonText (text);
-    button.setColour (juce::TextButton::textColourOffId, juce::Colours::white);
-    button.setColour (juce::TextButton::textColourOnId, juce::Colours::white);
-    button.setTooltip (text);
+    button.setColour (juce::TextButton::buttonColourId, charcoal);
+    button.setColour (juce::TextButton::buttonOnColourId, dimRed);
+    button.setColour (juce::TextButton::textColourOffId, silver);
+    button.setColour (juce::TextButton::textColourOnId, silver);
     addAndMakeVisible (button);
 }
 
-void KeyBridgeAudioProcessorEditor::setCaption (juce::Label& label, const juce::String& text)
-{
-    label.setText (text, juce::dontSendNotification);
-}
-
-juce::Colour KeyBridgeAudioProcessorEditor::accentColour() const { return colourFromArgb (processor.getAppearanceAccent()); }
-juce::Colour KeyBridgeAudioProcessorEditor::panelColour() const { return colourFromArgb (processor.getAppearancePanel()); }
-juce::Colour KeyBridgeAudioProcessorEditor::backgroundColour() const { return colourFromArgb (processor.getAppearanceBackground()); }
+juce::Colour KeyBridgeAudioProcessorEditor::accentColour() const { return red; }
+juce::Colour KeyBridgeAudioProcessorEditor::panelColour() const { return panel; }
 
 juce::Colour KeyBridgeAudioProcessorEditor::statusColour (const juce::String& status) const
 {
-    if (status.containsIgnoreCase ("INVALID") || status.containsIgnoreCase ("NO SIGNAL")) return juce::Colour (0xffef6b73);
-    if (status.containsIgnoreCase ("LOW") || status.containsIgnoreCase ("UNCERTAIN")) return juce::Colour (0xffffb454);
-    if (status.containsIgnoreCase ("SAVED") || status.containsIgnoreCase ("VALID")) return juce::Colour (0xff5fd29c);
-    if (status.containsIgnoreCase ("LISTENING") || status.containsIgnoreCase ("PROCESS")) return accentColour();
-    return juce::Colour (0xffaebdca);
+    if (status.containsIgnoreCase ("ERROR") || status.containsIgnoreCase ("FAILED") || status.containsIgnoreCase ("NO SIGNAL")) return red;
+    if (status.containsIgnoreCase ("UNCERTAIN") || status.containsIgnoreCase ("NEED") || status.containsIgnoreCase ("UNAVAILABLE")) return juce::Colour (0xffffb454);
+    if (status.containsIgnoreCase ("SAVED") || status.containsIgnoreCase ("READY")) return juce::Colour (0xfff2f2f5);
+    return muted;
+}
+
+juce::String KeyBridgeAudioProcessorEditor::rootName (int root) const
+{
+    return root >= 0 && root < 12 ? juce::String (noteNames[static_cast<size_t> (root)]) : "--";
 }
 
 juce::String KeyBridgeAudioProcessorEditor::keyName (int root, int mode) const
 {
-    if (root < 0 || root >= 12 || (mode != 0 && mode != 1))
-        return "UNKNOWN";
-    return juce::String (noteNames[static_cast<size_t> (root)]) + (mode == 0 ? " major" : " minor");
+    if (root < 0 || root >= 12 || (mode != 0 && mode != 1)) return "UNKNOWN";
+    return rootName (root) + (mode == 0 ? " Major" : " Minor");
+}
+
+juce::String KeyBridgeAudioProcessorEditor::midiName (float midi) const
+{
+    if (midi <= 0.0f) return "--";
+    const auto rounded = static_cast<int> (std::round (midi));
+    return rootName ((rounded % 12 + 12) % 12) + juce::String (rounded / 12 - 1);
+}
+
+juce::String KeyBridgeAudioProcessorEditor::scaleNotes (int root, int mode, bool similarOnly) const
+{
+    if (root < 0 || root >= 12 || (mode != 0 && mode != 1)) return "--";
+    const auto& scale = mode == 0 ? majorScale : minorScale;
+    const std::array<int, 4> indices { { 0, 2, 4, 5 } };
+    juce::String text;
+    const auto count = similarOnly ? 4 : 7;
+    for (int index = 0; index < count; ++index)
+    {
+        const auto degree = similarOnly ? indices[static_cast<size_t> (index)] : index;
+        text += rootName ((root + scale[static_cast<size_t> (degree)]) % 12);
+        if (index + 1 < count) text += similarOnly ? "     " : "   ";
+    }
+    return text;
 }
 
 tunerite::VocalFitRecommendation KeyBridgeAudioProcessorEditor::currentVocalFit() const
@@ -218,327 +253,47 @@ tunerite::VocalFitRecommendation KeyBridgeAudioProcessorEditor::currentVocalFit(
     request.vocalConfidence = processor.getSavedVocalConfidence();
     request.vocalSustainedPercent = processor.getSavedVocalSustainedPercent();
     request.vocalNoteChangeRate = processor.getSavedVocalNoteChangeSpeed();
-    request.voiceProfile = profileBox.getText().toStdString();
+    request.voiceProfile = profileBox.getText() == "Female" ? "Female hint" : "Male hint";
     request.genre = genreBox.getText().toStdString();
-    request.delivery = deliveryBox.getText().toStdString();
-    request.mood = vibeBox.getText().toStdString();
+    request.delivery = (genreBox.getText().containsIgnoreCase ("rap") || genreBox.getText() == "Trap" || genreBox.getText() == "Drill") ? "Rap" : "Sung";
+    request.mood = vibeBox.getText() == "Aggressive" ? "Hard tune" : vibeBox.getText().toStdString();
     return tunerite::VocalFit::recommend (request);
-}
-
-juce::String KeyBridgeAudioProcessorEditor::midiName (float midi) const
-{
-    if (midi <= 0.0f) return "--";
-    const auto rounded = static_cast<int> (std::round (midi));
-    const auto octave = rounded / 12 - 1;
-    return juce::String (noteNames[static_cast<size_t> ((rounded % 12 + 12) % 12)]) + juce::String (octave);
 }
 
 void KeyBridgeAudioProcessorEditor::ensureUiTimerRunning()
 {
-    if (! isTimerRunning())
-        startTimerHz (10);
+    if (! isTimerRunning()) startTimerHz (10);
 }
 
 void KeyBridgeAudioProcessorEditor::parentHierarchyChanged()
 {
-    if (isShowing())
-        ensureUiTimerRunning();
+    if (isShowing()) ensureUiTimerRunning();
 }
 
 void KeyBridgeAudioProcessorEditor::visibilityChanged()
 {
-    if (isShowing())
-        ensureUiTimerRunning();
-    else
-        stopTimer();
+    if (isShowing()) ensureUiTimerRunning(); else stopTimer();
 }
 
-void KeyBridgeAudioProcessorEditor::setMode (int mode)
+void KeyBridgeAudioProcessorEditor::setPage (int page)
 {
-    processor.setAnalysisMode (mode);
-    processor.setAnalysisEnabled (true);
-    beatModeButton.setToggleState (mode == 0, juce::dontSendNotification);
-    vocalModeButton.setToggleState (mode == 1, juce::dontSendNotification);
-    reviewModeButton.setToggleState (mode == 2, juce::dontSendNotification);
+    activePage = juce::jlimit (0, 1, page);
     resized();
     refreshView();
 }
 
-void KeyBridgeAudioProcessorEditor::refreshAppearance()
+void KeyBridgeAudioProcessorEditor::selectInput (int mode)
 {
-    opacitySlider.setValue (processor.getAppearancePanelOpacity(), juce::dontSendNotification);
-    glowSlider.setValue (processor.getAppearanceGlow(), juce::dontSendNotification);
-    compactLayoutToggle.setToggleState (processor.isCompactAppearance(), juce::dontSendNotification);
-    colourSelector.setCurrentColour (accentColour());
-    repaint();
-}
-
-void KeyBridgeAudioProcessorEditor::applyThemePreset()
-{
-    juce::Colour accent (0xff55c7e8), panel (0xff17202c), background (0xff0b1017);
-    switch (themeBox.getSelectedId())
-    {
-        case 2: accent = juce::Colour (0xffaa8cff); panel = juce::Colour (0xff1d1930); background = juce::Colour (0xff100e1a); break;
-        case 3: accent = juce::Colour (0xff62a8ff); panel = juce::Colour (0xff152238); background = juce::Colour (0xff0a101c); break;
-        case 4: accent = juce::Colour (0xff55d7a5); panel = juce::Colour (0xff15251f); background = juce::Colour (0xff0a1511); break;
-        case 5: accent = juce::Colour (0xffffb454); panel = juce::Colour (0xff292016); background = juce::Colour (0xff17110a); break;
-        case 6: accent = juce::Colour (0xffd8dee8); panel = juce::Colour (0xff242a31); background = juce::Colour (0xff12161a); break;
-        default: break;
-    }
-    processor.setAppearance (accent.getARGB(), panel.getARGB(), background.getARGB(), static_cast<float> (opacitySlider.getValue()), static_cast<float> (glowSlider.getValue()), compactLayoutToggle.getToggleState());
-    colourSelector.setCurrentColour (colourTargetBox.getSelectedId() == 1 ? accent : colourTargetBox.getSelectedId() == 2 ? panel : background);
-    repaint();
-}
-
-void KeyBridgeAudioProcessorEditor::applyColourSelector()
-{
-    auto accent = accentColour();
-    auto panel = panelColour();
-    auto background = backgroundColour();
-    if (colourTargetBox.getSelectedId() == 1) accent = colourSelector.getCurrentColour();
-    else if (colourTargetBox.getSelectedId() == 2) panel = colourSelector.getCurrentColour();
-    else background = colourSelector.getCurrentColour();
-    processor.setAppearance (accent.getARGB(), panel.getARGB(), background.getARGB(), static_cast<float> (opacitySlider.getValue()), static_cast<float> (glowSlider.getValue()), compactLayoutToggle.getToggleState());
-    repaint();
-}
-
-void KeyBridgeAudioProcessorEditor::saveAppearance()
-{
-    applyColourSelector();
-    analysisStatus.setText ("APPEARANCE SAVED", juce::dontSendNotification);
-}
-
-void KeyBridgeAudioProcessorEditor::paint (juce::Graphics& g)
-{
-    const auto background = backgroundColour();
-    const auto panel = panelColour().withAlpha (juce::jlimit (0.72f, 1.0f, processor.getAppearancePanelOpacity()));
-    const auto accent = accentColour();
-    g.fillAll (background);
-
-    const auto w = getWidth();
-    const auto h = getHeight();
-    if (brandLogo.isValid())
-        g.drawImageWithin (brandLogo, 18, 10, 54, 54, juce::RectanglePlacement::centred, false);
-
-    g.setColour (accent.withAlpha (0.10f + processor.getAppearanceGlow() * 0.12f));
-    g.fillRect (0, 0, w, 4);
-    g.setColour (juce::Colours::black.withAlpha (0.24f));
-    g.fillRect (0, 74, w, 1);
-
-    if (processor.getAnalysisMode() == 0)
-    {
-        const auto margin = 18;
-        const auto answerY = 126;
-        const auto gap = 18;
-        const auto answerWidth = (w - margin * 2 - gap) / 2;
-        const auto answerHeight = std::max (210, h - 330);
-        for (const auto& card : { juce::Rectangle<int> (margin, answerY, answerWidth, answerHeight), juce::Rectangle<int> (margin + answerWidth + gap, answerY, answerWidth, answerHeight) })
-        {
-            g.setColour (panel);
-            g.fillRoundedRectangle (card.toFloat(), 10.0f);
-            g.setColour (accent.withAlpha (0.55f));
-            g.drawRoundedRectangle (card.toFloat().reduced (0.5f), 10.0f, 1.0f);
-        }
-        return;
-    }
-
-    const auto margin = 18;
-    const auto top = 92;
-    const auto reviewWidth = static_cast<int> (w * 0.29f);
-    const auto gap = 12;
-    const auto leftWidth = w - margin * 2 - reviewWidth - gap;
-    const auto half = (leftWidth - gap) / 2;
-    const auto shortHeight = processor.isCompactAppearance() ? 128 : 148;
-    const auto vocalY = top + shortHeight + gap;
-    const auto vocalHeight = processor.isCompactAppearance() ? 132 : 154;
-
-    auto drawModule = [&g, panel, accent] (juce::Rectangle<int> bounds, bool recommendation)
-    {
-        g.setColour (panel);
-        g.fillRoundedRectangle (bounds.toFloat(), 8.0f);
-        g.setColour ((recommendation ? juce::Colour (0xff8267df) : accent).withAlpha (0.58f));
-        g.drawRoundedRectangle (bounds.toFloat().reduced (0.5f), 8.0f, 1.0f);
-    };
-    drawModule ({ margin, top, half, shortHeight }, false);
-    drawModule ({ margin + half + gap, top, half, shortHeight }, false);
-    drawModule ({ margin, vocalY, leftWidth, vocalHeight }, false);
-    drawModule ({ margin + leftWidth + gap, top, reviewWidth, vocalY + vocalHeight - top }, true);
-
-    const auto workflowY = vocalY + vocalHeight + gap;
-    g.setColour (panel);
-    g.fillRoundedRectangle (juce::Rectangle<float> (static_cast<float> (margin), static_cast<float> (workflowY), static_cast<float> (w - margin * 2), 102.0f), 8.0f);
-    g.setColour (accent.withAlpha (0.42f));
-    g.drawRoundedRectangle (juce::Rectangle<float> (static_cast<float> (margin), static_cast<float> (workflowY), static_cast<float> (w - margin * 2), 102.0f).reduced (0.5f), 8.0f, 1.0f);
-
-    const auto visualY = workflowY + 114;
-    const auto visualHeight = std::max (92, h - visualY - 18);
-    g.setColour (panel);
-    g.fillRoundedRectangle (juce::Rectangle<float> (static_cast<float> (margin), static_cast<float> (visualY), static_cast<float> (w - margin * 2), static_cast<float> (visualHeight)), 8.0f);
-    g.setColour (accent.withAlpha (0.28f));
-    g.drawRoundedRectangle (juce::Rectangle<float> (static_cast<float> (margin), static_cast<float> (visualY), static_cast<float> (w - margin * 2), static_cast<float> (visualHeight)).reduced (0.5f), 8.0f, 1.0f);
-
-    const auto trace = juce::Rectangle<float> (static_cast<float> (margin + 18), static_cast<float> (visualY + 30), static_cast<float> (w - margin * 2 - 36), static_cast<float> (visualHeight - 44));
-    g.setColour (juce::Colour (0xff8ba0b5).withAlpha (0.16f));
-    g.drawLine (trace.getX(), trace.getCentreY(), trace.getRight(), trace.getCentreY(), 1.0f);
-    juce::Path waveform;
-    for (size_t i = 0; i < levelHistory.size(); ++i)
-    {
-        const auto x = trace.getX() + trace.getWidth() * static_cast<float> (i) / static_cast<float> (levelHistory.size() - 1);
-        const auto y = trace.getCentreY() - trace.getHeight() * 0.40f * juce::jlimit (0.0f, 1.0f, levelHistory[i]);
-        if (i == 0) waveform.startNewSubPath (x, y); else waveform.lineTo (x, y);
-    }
-    g.setColour (accent.withAlpha (0.85f));
-    g.strokePath (waveform, juce::PathStrokeType (1.6f));
-
-    const auto meterBase = juce::Rectangle<float> (static_cast<float> (w - 86), 16.0f, 7.0f, 38.0f);
-    for (int channel = 0; channel < 2; ++channel)
-    {
-        const auto level = channel == 0 ? leftMeter : rightMeter;
-        const auto meter = meterBase.translated (static_cast<float> (channel * 13), 0.0f);
-        g.setColour (juce::Colour (0xff1e2a35));
-        g.fillRoundedRectangle (meter, 2.0f);
-        const auto active = meter.withTop (meter.getBottom() - meter.getHeight() * juce::jlimit (0.0f, 1.0f, level));
-        g.setColour (level > 0.88f ? juce::Colour (0xffef6b73) : accent);
-        g.fillRoundedRectangle (active, 2.0f);
-    }
-
-    if (appearanceOpen)
-    {
-        const auto overlay = juce::Rectangle<int> (std::max (22, w - 404), 84, 382, std::min (h - 106, 566));
-        g.setColour (background.brighter (0.08f).withAlpha (0.985f));
-        g.fillRoundedRectangle (overlay.toFloat(), 10.0f);
-        g.setColour (accent.withAlpha (0.72f));
-        g.drawRoundedRectangle (overlay.toFloat().reduced (0.5f), 10.0f, 1.0f);
-    }
-}
-
-void KeyBridgeAudioProcessorEditor::resized()
-{
-    const auto w = getWidth();
-    const auto h = getHeight();
-    const auto margin = 18;
-
-    if (processor.getAnalysisMode() == 0)
-    {
-        title.setBounds (82, 12, 190, 32);
-        subtitle.setBounds (82, 44, 260, 17);
-        beatModeButton.setBounds (350, 18, 104, 32);
-        vocalModeButton.setBounds (458, 18, 110, 32);
-        reviewModeButton.setBounds (572, 18, 90, 32);
-        appearanceButton.setVisible (false);
-        analysisStatus.setBounds (margin, 77, w - margin * 2, 20);
-        analysisStatus.setJustificationType (juce::Justification::centredLeft);
-
-        const auto answerY = 126;
-        const auto gap = 18;
-        const auto answerWidth = (w - margin * 2 - gap) / 2;
-        const auto answerHeight = std::max (210, h - 330);
-        bpmTitle.setBounds (margin + 28, answerY + 28, answerWidth - 56, 22);
-        bpmValue.setBounds (margin + 28, answerY + 72, answerWidth - 56, 76);
-        keyTitle.setBounds (margin + answerWidth + gap + 28, answerY + 28, answerWidth - 56, 22);
-        keyValue.setBounds (margin + answerWidth + gap + 28, answerY + 72, answerWidth - 56, 76);
-        bpmStatus.setBounds (margin, answerY + answerHeight + 22, w - margin * 2, 22);
-        bpmStatus.setJustificationType (juce::Justification::centred);
-        workflowLabel.setVisible (false);
-        instructionLabel.setBounds (margin, answerY + answerHeight + 54, w - margin * 2, 20);
-        instructionLabel.setJustificationType (juce::Justification::centred);
-        analyzeButton.setBounds (w / 2 - 178, answerY + answerHeight + 92, 230, 38);
-        clearButton.setBounds (w / 2 + 64, answerY + answerHeight + 92, 118, 38);
-        resetButton.setVisible (false);
-        return;
-    }
-
-    appearanceButton.setVisible (true);
-    resetButton.setVisible (true);
-    const auto top = 92;
-    const auto gap = 12;
-    const auto reviewWidth = static_cast<int> (w * 0.29f);
-    const auto leftWidth = w - margin * 2 - reviewWidth - gap;
-    const auto half = (leftWidth - gap) / 2;
-    const auto shortHeight = processor.isCompactAppearance() ? 128 : 148;
-    const auto vocalY = top + shortHeight + gap;
-    const auto vocalHeight = processor.isCompactAppearance() ? 132 : 154;
-    const auto reviewX = margin + leftWidth + gap;
-
-    title.setBounds (82, 8, 190, 30);
-    subtitle.setBounds (82, 37, 250, 17);
-    beatModeButton.setBounds (340, 18, 104, 32);
-    vocalModeButton.setBounds (448, 18, 110, 32);
-    reviewModeButton.setBounds (562, 18, 90, 32);
-    appearanceButton.setBounds (w - 238, 20, 104, 27);
-    inputStatus.setBounds (w - 430, 10, 178, 18);
-    analysisStatus.setBounds (w - 430, 29, 178, 18);
-    projectBpmLabel.setBounds (w - 430, 48, 178, 16);
-    meterCaption.setBounds (w - 92, 53, 70, 12);
-
-    bpmTitle.setBounds (margin + 16, top + 14, half - 32, 16);
-    bpmValue.setBounds (margin + 16, top + 33, half - 32, 42);
-    bpmDetail.setBounds (margin + 16, top + 76, half - 32, 32);
-    bpmStatus.setBounds (margin + 16, top + shortHeight - 24, half - 32, 14);
-
-    const auto keyX = margin + half + gap;
-    keyTitle.setBounds (keyX + 16, top + 14, half - 32, 16);
-    keyValue.setBounds (keyX + 16, top + 33, half - 32, 42);
-    keyDetail.setBounds (keyX + 16, top + 76, half - 32, 20);
-    keyNotes.setBounds (keyX + 16, top + 96, half - 32, 22);
-    keyStatus.setBounds (keyX + 16, top + shortHeight - 24, half - 32, 14);
-
-    vocalTitle.setBounds (margin + 16, vocalY + 14, leftWidth - 32, 16);
-    vocalValue.setBounds (margin + 16, vocalY + 34, 250, 40);
-    vocalDetail.setBounds (margin + 16, vocalY + 77, leftWidth - 32, vocalHeight - 112);
-    vocalStatus.setBounds (margin + 16, vocalY + vocalHeight - 24, leftWidth - 32, 14);
-
-    recommendationTitle.setBounds (reviewX + 16, top + 14, reviewWidth - 32, 16);
-    recommendationValue.setBounds (reviewX + 16, top + 36, reviewWidth - 32, 42);
-    recommendationDetail.setBounds (reviewX + 16, top + 82, reviewWidth - 32, vocalY + vocalHeight - top - 122);
-    recommendationStatus.setBounds (reviewX + 16, vocalY + vocalHeight - 24, reviewWidth - 32, 14);
-
-    const auto workflowY = vocalY + vocalHeight + gap;
-    workflowLabel.setBounds (margin + 16, workflowY + 12, 230, 16);
-    instructionLabel.setBounds (margin + 16, workflowY + 34, w - margin * 2 - 32, 20);
-    analyzeButton.setBounds (margin + 16, workflowY + 64, 154, 28);
-    stopButton.setBounds (margin + 178, workflowY + 64, 76, 28);
-    saveButton.setBounds (margin + 262, workflowY + 64, 164, 28);
-    clearButton.setBounds (margin + 434, workflowY + 64, 118, 28);
-    copyBpmButton.setBounds (margin + 560, workflowY + 64, 98, 28);
-    copyReportButton.setBounds (w - margin - 316, workflowY + 64, 158, 28);
-    copySettingsButton.setBounds (w - margin - 150, workflowY + 64, 150, 28);
-    resetButton.setBounds (w - margin - 100, workflowY + 12, 100, 24);
-
-    const auto visualY = workflowY + 114;
-    visualStatusLabel.setBounds (margin + 16, visualY + 9, w - margin * 2 - 32, 16);
-
-    const auto overlayX = std::max (22, w - 404);
-    const auto appearanceVisible = appearanceOpen;
-    for (auto* component : { static_cast<juce::Component*> (&appearanceTitle), static_cast<juce::Component*> (&themeCaption), static_cast<juce::Component*> (&colourTargetCaption), static_cast<juce::Component*> (&opacityCaption), static_cast<juce::Component*> (&glowCaption), static_cast<juce::Component*> (&layoutCaption), static_cast<juce::Component*> (&themeBox), static_cast<juce::Component*> (&colourTargetBox), static_cast<juce::Component*> (&opacitySlider), static_cast<juce::Component*> (&glowSlider), static_cast<juce::Component*> (&compactLayoutToggle), static_cast<juce::Component*> (&colourSelector), static_cast<juce::Component*> (&closeAppearanceButton), static_cast<juce::Component*> (&saveThemeButton), static_cast<juce::Component*> (&resetThemeButton) })
-        component->setVisible (appearanceVisible);
-    appearanceTitle.setBounds (overlayX + 18, 102, 190, 24);
-    closeAppearanceButton.setBounds (overlayX + 280, 104, 84, 24);
-    themeCaption.setBounds (overlayX + 18, 140, 100, 14);
-    themeBox.setBounds (overlayX + 18, 156, 164, 26);
-    colourTargetCaption.setBounds (overlayX + 198, 140, 150, 14);
-    colourTargetBox.setBounds (overlayX + 198, 156, 166, 26);
-    opacityCaption.setBounds (overlayX + 18, 198, 120, 14);
-    opacitySlider.setBounds (overlayX + 18, 214, 164, 28);
-    glowCaption.setBounds (overlayX + 198, 198, 120, 14);
-    glowSlider.setBounds (overlayX + 198, 214, 166, 28);
-    layoutCaption.setBounds (overlayX + 18, 254, 120, 14);
-    compactLayoutToggle.setBounds (overlayX + 18, 270, 160, 24);
-    colourSelector.setBounds (overlayX + 18, 306, 346, 184);
-    saveThemeButton.setBounds (overlayX + 18, 508, 142, 28);
-    resetThemeButton.setBounds (overlayX + 168, 508, 142, 28);
-}
-
-void KeyBridgeAudioProcessorEditor::changeListenerCallback (juce::ChangeBroadcaster* source)
-{
-    if (source == &colourSelector)
-        applyColourSelector();
+    selectedInput = juce::jlimit (0, 2, mode);
+    processor.setAnalysisMode (selectedInput == 2 ? 2 : selectedInput);
+    processor.setAnalysisEnabled (true);
+    activePage = selectedInput == 2 ? 1 : 0;
+    resized();
+    refreshView();
 }
 
 void KeyBridgeAudioProcessorEditor::timerCallback()
 {
-    leftMeter = 0.84f * leftMeter + 0.16f * processor.getLeftInputLevel();
-    rightMeter = 0.84f * rightMeter + 0.16f * processor.getRightInputLevel();
     std::move (levelHistory.begin() + 1, levelHistory.end(), levelHistory.begin());
     levelHistory.back() = processor.getInputLevel();
     refreshView();
@@ -546,277 +301,322 @@ void KeyBridgeAudioProcessorEditor::timerCallback()
 
 void KeyBridgeAudioProcessorEditor::refreshView()
 {
-    const auto mode = processor.getAnalysisMode();
-    const auto beatTempoSaved = processor.hasSavedBeatTempo();
-    const auto beatKeySaved = processor.hasSavedBeatKey();
-    const auto vocalSaved = processor.hasValidVocalResult();
-    const auto live = processor.isAnalysisActive();
-    const auto signal = processor.getInputLevel() > 0.0001f;
+    const auto captureState = processor.getCaptureState();
+    const auto capturing = captureState == 1 || captureState == 2 || captureState == 3;
+    const auto savedTempo = processor.hasSavedBeatTempo();
+    const auto savedKey = processor.hasSavedBeatKey();
+    const auto savedVocal = processor.hasValidVocalResult();
+    const auto root = savedKey ? processor.getSavedBeatKey() : -1;
+    const auto mode = savedKey ? processor.getSavedBeatMode() : -1;
+    const auto keyConfidence = savedKey ? processor.getSavedBeatKeyConfidence() : 0.0f;
+    const auto bpmConfidence = savedTempo ? processor.getSavedBeatBpmConfidence() : 0.0f;
+    const auto displayConfidence = savedKey ? keyConfidence : bpmConfidence;
+    const auto vocalFit = currentVocalFit();
+    const auto analyzerWarning = processor.getLastBeatAnalysisWarning();
 
-    inputStatus.setText (signal ? "INPUT: ACTIVE" : "INPUT: NO SIGNAL", juce::dontSendNotification);
-    inputStatus.setColour (juce::Label::textColourId, statusColour (inputStatus.getText()));
     juce::String status;
-    switch (processor.getCaptureState())
+    switch (captureState)
     {
-        case 1: status = "ARMED - WAITING FOR AUDIO"; break;
-        case 2: status = processor.isCaptureFinishRequested() ? "FINISH REQUESTED" : "CAPTURING"; break;
-        case 3: status = "PROCESSING CAPTURE"; break;
-        case 4: status = "NO SIGNAL - KEEP PLAYING"; break;
+        case 1: status = "ARMED — WAITING FOR AUDIO"; break;
+        case 2: status = processor.isCaptureFinishRequested() ? "FINISH REQUESTED" : "CAPTURING ROUTED AUDIO"; break;
+        case 3: status = "PROCESSING LOCAL ANALYZER"; break;
+        case 4: status = "NO SIGNAL — KEEP PLAYING"; break;
         case 5: status = "NEED 12 SECONDS BEFORE FINISH"; break;
         case 6: status = "CAPTURE CANCELLED"; break;
-        default: status = mode == 2 ? "REVIEW READY" : signal ? "READY" : "NO SIGNAL"; break;
+        default: status = analyzerWarning.isNotEmpty() && ! processor.hasSavedBeatResult() ? analyzerWarning : "READY"; break;
     }
-    analysisStatus.setText (juce::String ("STATUS: ") + status, juce::dontSendNotification);
+    analysisStatus.setText ("STATUS: " + status, juce::dontSendNotification);
     analysisStatus.setColour (juce::Label::textColourId, statusColour (status));
-    projectBpmLabel.setText ("Project BPM: " + (processor.getHostBpm() > 0.0 ? juce::String (processor.getHostBpm(), 2) : "--"), juce::dontSendNotification);
+    footerStatus.setText ("STATUS: " + status, juce::dontSendNotification);
+    footerStatus.setColour (juce::Label::textColourId, statusColour (status));
 
-    if (mode == 0)
-    {
-        for (auto* component : { static_cast<juce::Component*> (&inputStatus), static_cast<juce::Component*> (&projectBpmLabel), static_cast<juce::Component*> (&meterCaption), static_cast<juce::Component*> (&bpmDetail), static_cast<juce::Component*> (&keyDetail), static_cast<juce::Component*> (&keyNotes), static_cast<juce::Component*> (&keyStatus), static_cast<juce::Component*> (&vocalTitle), static_cast<juce::Component*> (&vocalValue), static_cast<juce::Component*> (&vocalDetail), static_cast<juce::Component*> (&vocalStatus), static_cast<juce::Component*> (&recommendationTitle), static_cast<juce::Component*> (&recommendationValue), static_cast<juce::Component*> (&recommendationDetail), static_cast<juce::Component*> (&recommendationStatus), static_cast<juce::Component*> (&stopButton), static_cast<juce::Component*> (&saveButton), static_cast<juce::Component*> (&copyBpmButton), static_cast<juce::Component*> (&copyReportButton), static_cast<juce::Component*> (&copySettingsButton), static_cast<juce::Component*> (&visualStatusLabel), static_cast<juce::Component*> (&profileBox), static_cast<juce::Component*> (&genreBox), static_cast<juce::Component*> (&deliveryBox), static_cast<juce::Component*> (&vibeBox), static_cast<juce::Component*> (&themeBox), static_cast<juce::Component*> (&colourTargetBox), static_cast<juce::Component*> (&opacitySlider), static_cast<juce::Component*> (&glowSlider), static_cast<juce::Component*> (&compactLayoutToggle), static_cast<juce::Component*> (&colourSelector), static_cast<juce::Component*> (&appearanceTitle), static_cast<juce::Component*> (&themeCaption), static_cast<juce::Component*> (&colourTargetCaption), static_cast<juce::Component*> (&opacityCaption), static_cast<juce::Component*> (&glowCaption), static_cast<juce::Component*> (&layoutCaption), static_cast<juce::Component*> (&closeAppearanceButton), static_cast<juce::Component*> (&saveThemeButton), static_cast<juce::Component*> (&resetThemeButton) })
-            component->setVisible (false);
+    bpmValue.setText (savedTempo ? juce::String (processor.getSavedBeatBpm(), 1) : "--", juce::dontSendNotification);
+    keyValue.setText (rootName (root), juce::dontSendNotification);
+    scaleValue.setText (mode == 0 ? "MAJOR" : mode == 1 ? "MINOR" : "--", juce::dontSendNotification);
+    confidenceValue.setText ((savedKey || savedTempo) ? confidenceText (displayConfidence) : "--", juce::dontSendNotification);
 
-        const auto captureState = processor.getCaptureState();
-        const auto analyzing = captureState == 1 || captureState == 2 || captureState == 3;
-        const auto savedTempo = processor.hasSavedBeatTempo();
-        const auto savedKey = processor.hasSavedBeatKey();
-        bpmTitle.setText ("BPM", juce::dontSendNotification);
-        keyTitle.setText ("KEY / SCALE", juce::dontSendNotification);
+    summaryKeyValue.setText (rootName (root), juce::dontSendNotification);
+    summaryScaleValue.setText (mode == 0 ? "MAJOR" : mode == 1 ? "MINOR" : "--", juce::dontSendNotification);
+    similarNotesValue.setText (scaleNotes (root, mode, true), juce::dontSendNotification);
+    inputTypeValue.setText (savedVocal ? midiName (processor.getSavedVocalAverageMidi()) + " TARGET" : "--", juce::dontSendNotification);
+    summaryConfidenceValue.setText ((savedKey || savedTempo) ? confidenceText (displayConfidence) : "--", juce::dontSendNotification);
+    inKeyNotes.setText (scaleNotes (root, mode, false), juce::dontSendNotification);
 
-        if (analyzing)
-        {
-            bpmValue.setText ("ANALYZING...", juce::dontSendNotification);
-            keyValue.setText ("ANALYZING...", juce::dontSendNotification);
-            bpmStatus.setText (captureState == 3 ? "STATUS: ANALYZING BEAT" : "STATUS: LISTENING TO BEAT", juce::dontSendNotification);
-        }
-        else
-        {
-            bpmValue.setText (savedTempo ? juce::String (processor.getSavedBeatBpm(), 1) : "--", juce::dontSendNotification);
-            keyValue.setText (savedKey ? keyName (processor.getSavedBeatKey(), processor.getSavedBeatMode()) : "UNCERTAIN", juce::dontSendNotification);
-            const auto outcome = processor.getBeatOutcomeState();
-            const auto analyzerWarning = processor.getLastBeatAnalysisWarning();
-            bpmStatus.setText (outcome == 1 ? "STATUS: BEAT SAVED"
-                : outcome == 2 ? (analyzerWarning.isNotEmpty() ? "STATUS: " + analyzerWarning : "STATUS: NOT ENOUGH USABLE AUDIO")
-                : "STATUS: NOT ANALYZED", juce::dontSendNotification);
-        }
-        bpmStatus.setColour (juce::Label::textColourId, statusColour (bpmStatus.getText()));
-        instructionLabel.setText ("Mute vocals and play the beat into this mixer track.", juce::dontSendNotification);
-        analyzeButton.setButtonText (captureState == 2 ? "STOP AND SAVE" : "ANALYZE BEAT");
-        analyzeButton.setEnabled (captureState != 3);
-        clearButton.setButtonText ("CLEAR");
-        clearButton.setEnabled (processor.hasSavedBeatResult() || processor.getBeatOutcomeState() != 0);
-        bpmDetail.setVisible (false);
-        return;
-    }
+    settingValues[0].setText (vocalFit.ready ? rootName (vocalFit.keyRoot) : "--", juce::dontSendNotification);
+    settingValues[1].setText (vocalFit.ready ? (vocalFit.keyMode == 0 ? "MAJOR" : "MINOR") : "--", juce::dontSendNotification);
+    settingValues[2].setText (vocalFit.ready ? juce::String (vocalFit.retuneSpeedMs) : "--", juce::dontSendNotification);
+    settingValues[3].setText (vocalFit.ready ? juce::String (vocalFit.humanize) : "--", juce::dontSendNotification);
+    settingValues[4].setText (vocalFit.ready ? juce::String (vocalFit.flexTune) : "--", juce::dontSendNotification);
+    // Formant is a general starting recommendation, not a detected property or external plugin control.
+    settingValues[5].setText (vocalFit.ready ? "ON" : "--", juce::dontSendNotification);
 
-    for (auto* component : { static_cast<juce::Component*> (&inputStatus), static_cast<juce::Component*> (&projectBpmLabel), static_cast<juce::Component*> (&meterCaption), static_cast<juce::Component*> (&bpmDetail), static_cast<juce::Component*> (&keyDetail), static_cast<juce::Component*> (&keyNotes), static_cast<juce::Component*> (&keyStatus), static_cast<juce::Component*> (&vocalTitle), static_cast<juce::Component*> (&vocalValue), static_cast<juce::Component*> (&vocalDetail), static_cast<juce::Component*> (&vocalStatus), static_cast<juce::Component*> (&recommendationTitle), static_cast<juce::Component*> (&recommendationValue), static_cast<juce::Component*> (&recommendationDetail), static_cast<juce::Component*> (&recommendationStatus), static_cast<juce::Component*> (&stopButton), static_cast<juce::Component*> (&saveButton), static_cast<juce::Component*> (&copyBpmButton), static_cast<juce::Component*> (&copyReportButton), static_cast<juce::Component*> (&copySettingsButton), static_cast<juce::Component*> (&visualStatusLabel) })
-        component->setVisible (true);
-
-    const auto bpm = beatTempoSaved ? processor.getSavedBeatBpm() : processor.getDetectedBpm();
-    const auto alternative = beatTempoSaved ? processor.getSavedBeatAlternativeBpm() : processor.getAlternativeBpm();
-    const auto bpmConfidence = beatTempoSaved ? processor.getSavedBeatBpmConfidence() : processor.getBpmConfidence();
-    if (beatTempoSaved)
-    {
-        bpmValue.setText (juce::String (bpm, 1), juce::dontSendNotification);
-        bpmDetail.setText ("Project BPM: " + juce::String (processor.getHostBpm(), 2)
-            + "  |  Confidence: " + confidenceText (bpmConfidence)
-            + "\nTempo candidates: " + juce::String (bpm, 1) + (alternative > 0.0 ? " / " + juce::String (alternative, 1) : ""), juce::dontSendNotification);
-        bpmStatus.setText ("MEASURED  |  SAVED", juce::dontSendNotification);
-    }
-    else if (mode == 0 && bpm > 0.0)
-    {
-        bpmValue.setText (juce::String (bpm, 1), juce::dontSendNotification);
-        bpmDetail.setText ("Confidence: " + confidenceText (bpmConfidence)
-            + (alternative > 0.0 ? "  |  Alternative: " + juce::String (alternative, 1) : "")
-            + "\nProject BPM is reference metadata only.", juce::dontSendNotification);
-        bpmStatus.setText ("LIVE PREVIEW - NOT SAVED", juce::dontSendNotification);
-    }
-    else
-    {
-        bpmValue.setText ("--", juce::dontSendNotification);
-        bpmDetail.setText ("No valid beat analysis saved.", juce::dontSendNotification);
-        bpmStatus.setText ("WAITING FOR BEAT CAPTURE", juce::dontSendNotification);
-    }
-    bpmStatus.setColour (juce::Label::textColourId, statusColour (bpmStatus.getText()));
-
-    const auto root = beatKeySaved ? processor.getSavedBeatKey() : processor.getDetectedKey();
-    const auto scaleMode = beatKeySaved ? processor.getSavedBeatMode() : processor.getDetectedMode();
-    const auto keyConfidence = beatKeySaved ? processor.getSavedBeatKeyConfidence() : processor.getKeyConfidence();
-    if (beatKeySaved)
-    {
-        const auto& scale = scaleMode == 0 ? majorScale : minorScale;
-        juce::String notes;
-        for (int index = 0; index < 7; ++index)
-            notes += juce::String (noteNames[static_cast<size_t> ((root + scale[static_cast<size_t> (index)]) % 12)]) + (index == 6 ? "" : "  ");
-        keyValue.setText (keyName (root, scaleMode), juce::dontSendNotification);
-        keyDetail.setText ("Scale: " + juce::String (scaleMode == 0 ? "Major" : "Minor") + "  |  Confidence: " + confidenceText (keyConfidence) + "  |  A4 = 440 Hz", juce::dontSendNotification);
-        keyNotes.setText ("Enabled notes: " + notes, juce::dontSendNotification);
-        keyStatus.setText ("MEASURED  |  SAVED", juce::dontSendNotification);
-    }
-    else if (mode == 0 && processor.hasStableDetection())
-    {
-        keyValue.setText (keyName (root, scaleMode), juce::dontSendNotification);
-        keyDetail.setText ("Confidence: " + confidenceText (keyConfidence) + "  |  Awaiting explicit save", juce::dontSendNotification);
-        keyNotes.setText ("Scale preview available only after valid analysis.", juce::dontSendNotification);
-        keyStatus.setText ("LIVE PREVIEW - NOT SAVED", juce::dontSendNotification);
-    }
-    else
-    {
-        keyValue.setText ("UNCERTAIN", juce::dontSendNotification);
-        keyDetail.setText ("No scale is recommended until a valid beat result is saved.", juce::dontSendNotification);
-        keyNotes.setText ("No fallback key is used.", juce::dontSendNotification);
-        keyStatus.setText (mode == 0 && bpm > 0.0 ? "LOW CONFIDENCE" : "WAITING FOR BEAT CAPTURE", juce::dontSendNotification);
-    }
-    keyStatus.setColour (juce::Label::textColourId, statusColour (keyStatus.getText()));
-
-    const auto vocalConfidence = vocalSaved ? processor.getSavedVocalConfidence() : processor.getVocalConfidence();
-    const auto vocalLow = vocalSaved ? processor.getSavedVocalLowestMidi() : processor.getVocalLowestMidi();
-    const auto vocalHigh = vocalSaved ? processor.getSavedVocalHighestMidi() : processor.getVocalHighestMidi();
-    const auto vocalAverage = vocalSaved ? processor.getSavedVocalAverageMidi() : processor.getVocalAverageMidi();
-    const auto voiced = vocalSaved ? processor.getSavedVocalVoicedPercent() : processor.getVocalVoicedPercent();
-    if (vocalSaved)
-    {
-        vocalValue.setText (midiName (vocalAverage), juce::dontSendNotification);
-        vocalDetail.setText ("Detected range: " + midiName (vocalLow) + " - " + midiName (vocalHigh)
-            + "  |  Median pitch: " + midiName (vocalAverage)
-            + "\nVoiced audio: " + confidenceText (voiced) + "  |  Pitch confidence: " + confidenceText (vocalConfidence)
-            + "  |  Sustained: " + confidenceText (processor.getSavedVocalSustainedPercent()), juce::dontSendNotification);
-        vocalStatus.setText ("MEASURED  |  SAVED", juce::dontSendNotification);
-    }
-    else if (mode == 1 && vocalConfidence >= 0.55f && voiced >= 0.20f)
-    {
-        vocalValue.setText (midiName (vocalAverage), juce::dontSendNotification);
-        vocalDetail.setText ("Range preview: " + midiName (vocalLow) + " - " + midiName (vocalHigh)
-            + "  |  Voiced: " + confidenceText (voiced)
-            + "\nPitch confidence: " + confidenceText (vocalConfidence) + ". Save to use in review.", juce::dontSendNotification);
-        vocalStatus.setText ("LIVE PREVIEW - NOT SAVED", juce::dontSendNotification);
-    }
-    else
-    {
-        vocalValue.setText ("INVALID", juce::dontSendNotification);
-        vocalDetail.setText ("No stable voiced pitch detected. No vocal range or Auto-Tune settings are saved from an invalid result.", juce::dontSendNotification);
-        vocalStatus.setText (mode == 1 && live ? "LISTENING" : "NO VALID VOCAL RESULT", juce::dontSendNotification);
-    }
-    vocalStatus.setColour (juce::Label::textColourId, statusColour (vocalStatus.getText()));
-
-    const auto vocalFit = currentVocalFit();
+    lowestValue.setText (savedVocal ? midiName (processor.getSavedVocalLowestMidi()) : "--", juce::dontSendNotification);
+    comfortValue.setText (savedVocal ? midiName (processor.getSavedVocalAverageMidi()) : "--", juce::dontSendNotification);
     if (vocalFit.ready)
     {
-        recommendationValue.setText (juce::String (vocalFit.keyScale), juce::dontSendNotification);
-        recommendationDetail.setText ("MEASURED: " + juce::String (vocalFit.keyScale) + " | " + juce::String (vocalFit.vocalRange)
-            + "\nRECOMMENDED: " + (vocalFit.classicMode ? "Classic" : "Modern")
-            + "  |  Retune " + juce::String (vocalFit.retuneSpeedMs) + " ms\nHumanize " + juce::String (vocalFit.humanize)
-            + "  |  Flex-Tune " + juce::String (vocalFit.flexTune)
-            + "  |  " + juce::String (vocalFit.processingMode)
-            + "\nWhy: " + juce::String (vocalFit.rationale) + " Starting point only; TuneRite does not control Auto-Tune directly.", juce::dontSendNotification);
-        recommendationStatus.setText (juce::String (vocalFit.status), juce::dontSendNotification);
+        guidanceText.setText ("• Start with Retune Speed " + juce::String (vocalFit.retuneSpeedMs) + ".\n"
+                              "• Use Humanize " + juce::String (vocalFit.humanize) + " and Flex Tune " + juce::String (vocalFit.flexTune) + ".\n"
+                              "• " + juce::String (vocalFit.keyScale) + " is the measured tuning key.", juce::dontSendNotification);
     }
     else
     {
-        recommendationValue.setText (vocalFit.keyScale.empty() ? "LOCKED" : juce::String (vocalFit.keyScale), juce::dontSendNotification);
-        recommendationDetail.setText (juce::String (vocalFit.rationale), juce::dontSendNotification);
-        recommendationStatus.setText (juce::String (vocalFit.status), juce::dontSendNotification);
+        guidanceText.setText ("• Save a valid beat key before selecting a tuning key.\n"
+                              "• Save isolated vocal evidence for range-sensitive settings.\n"
+                              "• Target controls adjust recommendations only.", juce::dontSendNotification);
     }
-    recommendationStatus.setColour (juce::Label::textColourId, statusColour (vocalFit.ready ? "VALID" : "LOW"));
 
-    if (mode == 0)
+    analyzePageButton.setToggleState (activePage == 0, juce::dontSendNotification);
+    recommendationsPageButton.setToggleState (activePage == 1, juce::dontSendNotification);
+    beatInputButton.setToggleState (selectedInput == 0, juce::dontSendNotification);
+    vocalInputButton.setToggleState (selectedInput == 1, juce::dontSendNotification);
+    combinedInputButton.setToggleState (selectedInput == 2, juce::dontSendNotification);
+    analyzeButton.setButtonText (selectedInput == 2 ? "OPEN RECOMMENDATIONS" : captureState == 2 ? "STOP AND SAVE" : "ANALYZE");
+    analyzeButton.setEnabled (selectedInput == 2 || captureState != 3);
+    clearButton.setEnabled (selectedInput == 0 ? processor.hasSavedBeatResult() : selectedInput == 1 ? processor.hasSavedVocalResult() : (savedTempo || savedKey || savedVocal));
+    copySettingsButton.setEnabled (vocalFit.ready);
+
+    const bool showAnalyze = activePage == 0;
+    for (auto* component : { static_cast<juce::Component*> (&bpmCaption), static_cast<juce::Component*> (&bpmValue),
+                             static_cast<juce::Component*> (&keyCaption), static_cast<juce::Component*> (&keyValue),
+                             static_cast<juce::Component*> (&scaleValue), static_cast<juce::Component*> (&confidenceCaption),
+                             static_cast<juce::Component*> (&confidenceValue), static_cast<juce::Component*> (&beatInputButton),
+                             static_cast<juce::Component*> (&vocalInputButton), static_cast<juce::Component*> (&combinedInputButton),
+                             static_cast<juce::Component*> (&analyzeButton), static_cast<juce::Component*> (&clearButton) })
+        component->setVisible (showAnalyze);
+
+    for (auto* component : { static_cast<juce::Component*> (&targetGenderCaption), static_cast<juce::Component*> (&targetGenreCaption),
+                             static_cast<juce::Component*> (&targetMoodCaption), static_cast<juce::Component*> (&profileBox),
+                             static_cast<juce::Component*> (&genreBox), static_cast<juce::Component*> (&vibeBox),
+                             static_cast<juce::Component*> (&summaryKeyCaption), static_cast<juce::Component*> (&summaryKeyValue),
+                             static_cast<juce::Component*> (&summaryScaleCaption), static_cast<juce::Component*> (&summaryScaleValue),
+                             static_cast<juce::Component*> (&similarNotesCaption), static_cast<juce::Component*> (&similarNotesValue),
+                             static_cast<juce::Component*> (&inputTypeCaption), static_cast<juce::Component*> (&inputTypeValue),
+                             static_cast<juce::Component*> (&summaryConfidenceCaption), static_cast<juce::Component*> (&summaryConfidenceValue),
+                             static_cast<juce::Component*> (&settingsHeading), static_cast<juce::Component*> (&inKeyHeading),
+                             static_cast<juce::Component*> (&inKeyNotes), static_cast<juce::Component*> (&lowestCaption),
+                             static_cast<juce::Component*> (&lowestValue), static_cast<juce::Component*> (&comfortCaption),
+                             static_cast<juce::Component*> (&comfortValue), static_cast<juce::Component*> (&guidanceHeading),
+                             static_cast<juce::Component*> (&guidanceText), static_cast<juce::Component*> (&copySettingsButton) })
+        component->setVisible (! showAnalyze);
+    for (auto& label : settingCaptions) label.setVisible (! showAnalyze);
+    for (auto& label : settingValues) label.setVisible (! showAnalyze);
+
+    juce::ignoreUnused (capturing);
+    repaint();
+}
+
+void KeyBridgeAudioProcessorEditor::paint (juce::Graphics& g)
+{
+    const auto w = getWidth();
+    const auto h = getHeight();
+    const auto margin = 34;
+    g.fillAll (juce::Colour (0xff040405));
+    juce::ColourGradient backdrop (juce::Colour (0xff121015), 0.0f, 0.0f, juce::Colour (0xff030304), 0.0f, static_cast<float> (h), false);
+    g.setGradientFill (backdrop);
+    g.fillRect (getLocalBounds());
+    g.setColour (juce::Colour (0xff2d2d33));
+    g.drawRoundedRectangle (getLocalBounds().toFloat().reduced (10.0f), 14.0f, 0.8f);
+
+    if (brandLogo.isValid())
+        g.drawImageWithin (brandLogo, margin, 20, 88, 88, juce::RectanglePlacement::centred, false);
+    g.setColour (red.withAlpha (0.35f));
+    g.drawEllipse (juce::Rectangle<float> (static_cast<float> (margin - 6), 14.0f, 100.0f, 100.0f), 1.2f);
+
+    const auto nav = juce::Rectangle<float> (static_cast<float> (w / 2 - 330), 26.0f, 660.0f, 62.0f);
+    g.setColour (juce::Colour (0xff0a0a0c));
+    g.fillRoundedRectangle (nav, 10.0f);
+    g.setColour (juce::Colour (0xff4b3034));
+    g.drawRoundedRectangle (nav, 10.0f, 0.9f);
+    const auto navSplit = nav.getX() + nav.getWidth() * 0.39f;
+    g.setColour (juce::Colour (0xff64646a));
+    g.drawLine (navSplit, nav.getY() + 16.0f, navSplit, nav.getBottom() - 16.0f, 0.7f);
+    g.setColour (red);
+    const auto activeStart = activePage == 0 ? nav.getX() + 24.0f : navSplit + 22.0f;
+    const auto activeEnd = activePage == 0 ? navSplit - 34.0f : nav.getRight() - 24.0f;
+    g.drawLine (activeStart, nav.getBottom() - 2.0f, activeEnd, nav.getBottom() - 2.0f, 2.5f);
+
+    if (activePage == 0)
     {
-        workflowLabel.setText ("1. CAPTURE BEAT   ->   2. CAPTURE VOCAL   ->   3. REVIEW SETTINGS", juce::dontSendNotification);
-        instructionLabel.setText ("Mute vocals. Press Analyze Beat, play at least 12 seconds, then press Stop and Save; it auto-finishes at 16 seconds.", juce::dontSendNotification);
-        analyzeButton.setButtonText ("ANALYZE BEAT"); stopButton.setButtonText ("FINISH CAPTURE"); saveButton.setButtonText ("SAVE BEAT RESULT"); clearButton.setButtonText ("CLEAR BEAT");
-    }
-    else if (mode == 1)
-    {
-        workflowLabel.setText ("1. CAPTURE BEAT   ->   2. CAPTURE VOCAL   ->   3. REVIEW SETTINGS", juce::dontSendNotification);
-        instructionLabel.setText ("Mute the beat. Press Analyze Vocal, play isolated voice for at least 12 seconds, then press Stop and Save; it auto-finishes at 16 seconds.", juce::dontSendNotification);
-        analyzeButton.setButtonText ("ANALYZE VOCAL"); stopButton.setButtonText ("FINISH CAPTURE"); saveButton.setButtonText ("SAVE VOCAL RESULT"); clearButton.setButtonText ("CLEAR VOCAL");
+        const auto summary = juce::Rectangle<float> (static_cast<float> (margin + 40), 132.0f, static_cast<float> (w - (margin + 40) * 2), 170.0f);
+        drawHardwarePanel (g, summary, true);
+        const auto section = summary.getWidth() / 3.0f;
+        g.setColour (juce::Colour (0xff4c4c52));
+        g.drawLine (summary.getX() + section, summary.getY() + 28.0f, summary.getX() + section, summary.getBottom() - 28.0f, 0.75f);
+        g.drawLine (summary.getX() + section * 2.0f, summary.getY() + 28.0f, summary.getX() + section * 2.0f, summary.getBottom() - 28.0f, 0.75f);
+
+        const auto selector = juce::Rectangle<float> (static_cast<float> (margin + 40), 332.0f, static_cast<float> (w - (margin + 40) * 2), 268.0f);
+        drawHardwarePanel (g, selector);
+        g.setColour (red);
+        g.setFont (juce::Font (juce::FontOptions (14.0f, juce::Font::bold)));
+        g.drawFittedText ("SELECT INPUT", selector.getCentreX() - 90.0f, selector.getY() + 10.0f, 180.0f, 22.0f, juce::Justification::centred, 1);
+        const auto gap = 36.0f;
+        const auto cardW = (selector.getWidth() - 88.0f - gap * 2.0f) / 3.0f;
+        for (int card = 0; card < 3; ++card)
+        {
+            const auto bounds = juce::Rectangle<float> (selector.getX() + 44.0f + card * (cardW + gap), selector.getY() + 50.0f, cardW, 204.0f);
+            drawHardwarePanel (g, bounds, selectedInput == card);
+        }
+        g.setColour (red.withAlpha (0.80f));
+        for (int i = 0; i < 5; ++i)
+        {
+            const auto x = selector.getX() + 44.0f + cardW * 0.5f - 24.0f + i * 12.0f;
+            const auto height = 20.0f + static_cast<float> ((i % 3) * 12);
+            g.drawLine (x, selector.getY() + 88.0f - height * 0.5f, x, selector.getY() + 88.0f + height * 0.5f, 2.5f);
+        }
     }
     else
     {
-        workflowLabel.setText ("1. CAPTURE BEAT   ->   2. CAPTURE VOCAL   ->   3. REVIEW SETTINGS", juce::dontSendNotification);
-        instructionLabel.setText (beatKeySaved && vocalSaved ? "Both valid results are saved. Review and copy starting settings." : "Review needs a saved beat key and saved vocal result. BPM may be saved separately.", juce::dontSendNotification);
-        analyzeButton.setButtonText ("REVIEW COMBINED"); stopButton.setButtonText ("FINISH CAPTURE"); saveButton.setButtonText ("SAVED RESULTS ONLY"); clearButton.setButtonText ("CLEAR RESULTS");
+        const auto controlsY = 112.0f;
+        const auto controlW = 250.0f;
+        const auto controlsStart = (static_cast<float> (w) - controlW * 3.0f - 28.0f) * 0.5f;
+        for (int i = 0; i < 3; ++i)
+            drawHardwarePanel (g, { controlsStart + i * (controlW + 14.0f), controlsY + 18.0f, controlW, 48.0f });
+
+        const auto summary = juce::Rectangle<float> (static_cast<float> (margin + 40), 194.0f, static_cast<float> (w - (margin + 40) * 2), 112.0f);
+        drawHardwarePanel (g, summary, true);
+        const auto segment = summary.getWidth() / 5.0f;
+        g.setColour (juce::Colour (0xff4c4c52));
+        for (int i = 1; i < 5; ++i)
+            g.drawLine (summary.getX() + segment * i, summary.getY() + 18.0f, summary.getX() + segment * i, summary.getBottom() - 18.0f, 0.7f);
+        drawMeter (g, { summary.getX() + segment * 4.0f + 98.0f, summary.getBottom() - 28.0f, segment - 138.0f, 8.0f }, processor.hasSavedBeatKey() ? processor.getSavedBeatKeyConfidence() : processor.getSavedBeatBpmConfidence());
+
+        const auto settings = juce::Rectangle<float> (static_cast<float> (margin + 40), 334.0f, static_cast<float> (w - (margin + 40) * 2), 160.0f);
+        drawHardwarePanel (g, settings);
+        g.setColour (red);
+        g.setFont (juce::Font (juce::FontOptions (14.0f, juce::Font::bold)));
+        g.drawFittedText ("RECOMMENDED AUTO-TUNE SETTINGS", settings.getCentreX() - 180.0f, settings.getY() - 11.0f, 360.0f, 22.0f, juce::Justification::centred, 1);
+        const auto cardGap = 12.0f;
+        const auto cardW = (settings.getWidth() - 32.0f - cardGap * 5.0f) / 6.0f;
+        for (int card = 0; card < 6; ++card)
+            drawHardwarePanel (g, { settings.getX() + 16.0f + card * (cardW + cardGap), settings.getY() + 30.0f, cardW, 112.0f });
+
+        const auto bottomY = 520.0f;
+        const auto bottomH = std::max (118.0f, static_cast<float> (h) - bottomY - 114.0f);
+        const auto bottomW = static_cast<float> (w - (margin + 40) * 2);
+        const auto leftW = bottomW * 0.34f;
+        const auto middleW = bottomW * 0.30f;
+        drawHardwarePanel (g, { static_cast<float> (margin + 40), bottomY, leftW, bottomH });
+        drawHardwarePanel (g, { static_cast<float> (margin + 40) + leftW + 14.0f, bottomY, middleW, bottomH });
+        drawHardwarePanel (g, { static_cast<float> (margin + 40) + leftW + middleW + 28.0f, bottomY, bottomW - leftW - middleW - 28.0f, bottomH });
     }
 
-    const auto callbackText = "callbacks " + juce::String (static_cast<juce::int64> (processor.getAudioCallbackCount()))
-        + " | block " + juce::String (processor.getLastAudioBlockSize());
-    visualStatusLabel.setText (live ? "CAPTURE DIAGNOSTIC: " + callbackText + " | buffer " + juce::String (processor.getAnalysisDuration(), 1) + "s | signal " + juce::String (processor.getCapturedSignalSeconds(), 1) + "s | minimum finish 12.0s" : "INPUT HISTORY: " + callbackText + " | real meter samples only. No decorative animation.", juce::dontSendNotification);
-    updateActionStates();
+    g.setColour (juce::Colour (0xff29292e));
+    g.drawLine (static_cast<float> (margin), static_cast<float> (h - 44), static_cast<float> (w - margin), static_cast<float> (h - 44), 0.8f);
+    g.setColour (red.withAlpha (0.78f));
+    g.drawLine (static_cast<float> (w / 2 - 112), static_cast<float> (h - 35), static_cast<float> (w / 2 + 112), static_cast<float> (h - 35), 1.4f);
 }
 
-void KeyBridgeAudioProcessorEditor::updateActionStates()
+void KeyBridgeAudioProcessorEditor::resized()
 {
-    const auto mode = processor.getAnalysisMode();
-    const auto beatReady = processor.hasStableDetection() && ! processor.isAnalysisActive();
-    const auto vocalReady = processor.getVocalConfidence() >= 0.55f && processor.getVocalVoicedPercent() >= 0.20f && ! processor.isAnalysisActive();
-    const auto bothSaved = processor.hasSavedBeatKey() && processor.hasValidVocalResult();
-    juce::ignoreUnused (beatReady, vocalReady);
-    analyzeButton.setEnabled (mode != 2 && ! processor.isAnalysisActive());
-    stopButton.setEnabled (processor.isAnalysisActive() && processor.getCaptureState() == 2);
-    // Results are saved by the worker at publication time; no manual save action is required.
-    saveButton.setVisible (false);
-    saveButton.setEnabled (false);
-    clearButton.setEnabled (mode == 0 ? processor.hasSavedBeatResult() : mode == 1 ? processor.hasSavedVocalResult() : bothSaved);
-    copyBpmButton.setEnabled (processor.hasSavedBeatTempo());
-    copySettingsButton.setEnabled (bothSaved);
-    copyReportButton.setEnabled (processor.hasSavedBeatResult() || processor.hasSavedVocalResult());
-}
+    const auto w = getWidth();
+    const auto h = getHeight();
+    const auto margin = 34;
+    title.setBounds (margin + 98, 29, 290, 40);
+    subtitle.setBounds (margin + 100, 70, 290, 20);
+    analysisStatus.setBounds (w - 340, 38, 250, 20);
+    helpButton.setBounds (w - 76, 42, 34, 34);
+    analyzePageButton.setBounds (w / 2 - 318, 33, 238, 48);
+    recommendationsPageButton.setBounds (w / 2 - 64, 33, 370, 48);
+    footerStatus.setBounds (margin + 10, h - 34, w - margin * 2 - 20, 20);
 
-void KeyBridgeAudioProcessorEditor::copyDetectedBpm()
-{
-    if (! processor.hasSavedBeatTempo())
+    if (activePage == 0)
     {
-        bpmStatus.setText ("CAPTURE A VALID BPM FIRST", juce::dontSendNotification);
+        const auto summaryX = margin + 40;
+        const auto summaryW = w - (margin + 40) * 2;
+        const auto section = summaryW / 3;
+        bpmCaption.setBounds (summaryX + 40, 160, section - 80, 20);
+        bpmValue.setBounds (summaryX + 40, 195, section - 80, 72);
+        keyCaption.setBounds (summaryX + section + 38, 160, section - 76, 20);
+        keyValue.setBounds (summaryX + section + 38, 190, (section - 76) * 0.50f, 72);
+        scaleValue.setBounds (summaryX + section + (section - 76) * 0.50f + 38, 202, (section - 76) * 0.50f, 48);
+        confidenceCaption.setBounds (summaryX + section * 2 + 38, 160, section - 76, 20);
+        confidenceValue.setBounds (summaryX + section * 2 + 38, 195, section - 76, 70);
+
+        const auto selectorX = margin + 40;
+        const auto selectorW = w - (margin + 40) * 2;
+        const auto gap = 36;
+        const auto cardW = (selectorW - 88 - gap * 2) / 3;
+        for (int card = 0; card < 3; ++card)
+        {
+            const auto x = selectorX + 44 + card * (cardW + gap);
+            auto* button = card == 0 ? &beatInputButton : card == 1 ? &vocalInputButton : &combinedInputButton;
+            button->setBounds (x + 20, 450, cardW - 40, 52);
+        }
+        analyzeButton.setBounds (w / 2 - 180, std::min (h - 96, 626), 278, 44);
+        clearButton.setBounds (w / 2 + 112, std::min (h - 96, 626), 108, 44);
         return;
     }
-    juce::SystemClipboard::copyTextToClipboard (juce::String (processor.getSavedBeatBpm(), 2));
-    bpmStatus.setText ("SAVED BPM COPIED", juce::dontSendNotification);
+
+    const auto controlW = 250;
+    const auto controlsStart = (w - controlW * 3 - 28) / 2;
+    targetGenderCaption.setBounds (controlsStart + 16, 130, 104, 18);
+    profileBox.setBounds (controlsStart + 122, 126, 112, 28);
+    targetGenreCaption.setBounds (controlsStart + controlW + 30, 130, 94, 18);
+    genreBox.setBounds (controlsStart + controlW + 122, 126, 112, 28);
+    targetMoodCaption.setBounds (controlsStart + (controlW + 14) * 2 + 16, 130, 92, 18);
+    vibeBox.setBounds (controlsStart + (controlW + 14) * 2 + 108, 126, 126, 28);
+
+    const auto summaryX = margin + 40;
+    const auto summaryW = w - (margin + 40) * 2;
+    const auto segment = summaryW / 5;
+    summaryKeyCaption.setBounds (summaryX + 18, 211, segment - 36, 18);
+    summaryKeyValue.setBounds (summaryX + 18, 236, segment - 36, 48);
+    summaryScaleCaption.setBounds (summaryX + segment + 18, 211, segment - 36, 18);
+    summaryScaleValue.setBounds (summaryX + segment + 18, 238, segment - 36, 42);
+    similarNotesCaption.setBounds (summaryX + segment * 2 + 18, 211, segment - 36, 18);
+    similarNotesValue.setBounds (summaryX + segment * 2 + 18, 240, segment - 36, 36);
+    inputTypeCaption.setBounds (summaryX + segment * 3 + 18, 211, segment - 36, 18);
+    inputTypeValue.setBounds (summaryX + segment * 3 + 18, 240, segment - 36, 36);
+    summaryConfidenceCaption.setBounds (summaryX + segment * 4 + 18, 211, segment - 36, 18);
+    summaryConfidenceValue.setBounds (summaryX + segment * 4 + 18, 236, 86, 44);
+
+    const auto settingsX = margin + 40;
+    const auto settingsW = w - (margin + 40) * 2;
+    const auto cardGap = 12;
+    const auto cardW = (settingsW - 32 - cardGap * 5) / 6;
+    settingsHeading.setBounds (w / 2 - 210, 316, 420, 22);
+    for (int index = 0; index < 6; ++index)
+    {
+        const auto x = settingsX + 16 + index * (cardW + cardGap);
+        settingCaptions[static_cast<size_t> (index)].setBounds (x + 6, 375, cardW - 12, 18);
+        settingValues[static_cast<size_t> (index)].setBounds (x + 6, 404, cardW - 12, 52);
+    }
+
+    const auto bottomY = 520;
+    const auto bottomH = std::max (118, h - bottomY - 114);
+    const auto bottomW = w - (margin + 40) * 2;
+    const auto leftW = static_cast<int> (bottomW * 0.34f);
+    const auto middleW = static_cast<int> (bottomW * 0.30f);
+    const auto leftX = margin + 40;
+    const auto middleX = leftX + leftW + 14;
+    const auto guideX = middleX + middleW + 14;
+    inKeyHeading.setBounds (leftX + 20, bottomY + 16, leftW - 40, 18);
+    inKeyNotes.setBounds (leftX + 20, bottomY + 53, leftW - 40, 42);
+    lowestCaption.setBounds (middleX + 20, bottomY + 16, middleW / 2 - 30, 18);
+    lowestValue.setBounds (middleX + 20, bottomY + 49, middleW / 2 - 30, 44);
+    comfortCaption.setBounds (middleX + middleW / 2 + 4, bottomY + 16, middleW / 2 - 24, 18);
+    comfortValue.setBounds (middleX + middleW / 2 + 4, bottomY + 49, middleW / 2 - 24, 44);
+    guidanceHeading.setBounds (guideX + 20, bottomY + 16, bottomW - leftW - middleW - 68, 18);
+    guidanceText.setBounds (guideX + 20, bottomY + 46, bottomW - leftW - middleW - 68, bottomH - 56);
+    copySettingsButton.setBounds (w / 2 - 170, std::min (h - 96, bottomY + bottomH + 20), 340, 44);
 }
 
 void KeyBridgeAudioProcessorEditor::copySettings()
 {
-    const auto vocalFit = currentVocalFit();
-    if (! vocalFit.ready)
+    const auto recommendation = currentVocalFit();
+    if (! recommendation.ready)
     {
-        recommendationStatus.setText (juce::String (vocalFit.status), juce::dontSendNotification);
+        footerStatus.setText ("STATUS: " + juce::String (recommendation.status), juce::dontSendNotification);
         return;
     }
-    const auto text = juce::String ("TuneRite Auto-Tune Starting Point\n")
-        + "Measured key/scale: " + juce::String (vocalFit.keyScale) + "\n"
-        + (processor.hasSavedBeatTempo() ? "Measured BPM: " + juce::String (processor.getSavedBeatBpm(), 2) + "\n" : "Measured BPM: unavailable\n")
-        + "Measured vocal range: " + juce::String (vocalFit.vocalRange) + "\n"
-        + "Recommended mode: " + (vocalFit.classicMode ? "Classic" : "Modern") + "\n"
-        + "Recommended retune speed: " + juce::String (vocalFit.retuneSpeedMs) + " ms\n"
-        + "Recommended humanize: " + juce::String (vocalFit.humanize) + "\n"
-        + "Recommended Flex-Tune: " + juce::String (vocalFit.flexTune) + "\n"
-        + "Processing: " + juce::String (vocalFit.processingMode) + "\n"
-        + "Recommendation: starting point only; TuneRite does not control Auto-Tune directly.";
+    const auto text = juce::String ("TuneRite Auto-Tune Recommendation\n")
+        + "Key: " + rootName (recommendation.keyRoot) + "\n"
+        + "Scale: " + (recommendation.keyMode == 0 ? "Major" : "Minor") + "\n"
+        + "Retune Speed: " + juce::String (recommendation.retuneSpeedMs) + "\n"
+        + "Humanize: " + juce::String (recommendation.humanize) + "\n"
+        + "Flex Tune: " + juce::String (recommendation.flexTune) + "\n"
+        + "Formant: On\n"
+        + "TuneRite provides starting recommendations only and does not modify Auto-Tune.";
     juce::SystemClipboard::copyTextToClipboard (text);
-    recommendationStatus.setText ("AUTO-TUNE STARTING POINT COPIED", juce::dontSendNotification);
-}
-
-void KeyBridgeAudioProcessorEditor::copyEngineerReport()
-{
-    juce::String text ("TuneRite Engineer Report\n");
-    text += "Beat BPM saved: " + juce::String (processor.hasSavedBeatTempo() ? "yes" : "no") + "\n";
-    if (processor.hasSavedBeatTempo())
-    {
-        text += "BPM: " + juce::String (processor.getSavedBeatBpm(), 2) + "\n";
-        text += "BPM confidence: " + confidenceText (processor.getSavedBeatBpmConfidence()) + "\n";
-    }
-    text += "Beat key saved: " + juce::String (processor.hasSavedBeatKey() ? "yes" : "no") + "\n";
-    if (processor.hasSavedBeatKey())
-    {
-        text += "Key: " + keyName (processor.getSavedBeatKey(), processor.getSavedBeatMode()) + "\n";
-        text += "Key confidence: " + confidenceText (processor.getSavedBeatKeyConfidence()) + "\n";
-    }
-    else
-    {
-        text += "Key: UNKNOWN / UNCERTAIN\n";
-    }
-    text += "Vocal saved: " + juce::String (processor.hasSavedVocalResult() ? "yes" : "no") + "\n";
-    if (processor.hasSavedVocalResult())
-        text += "Vocal range: " + midiName (processor.getSavedVocalLowestMidi()) + " - " + midiName (processor.getSavedVocalHighestMidi()) + "\n";
-    text += "TuneRite provides analysis and starting recommendations only; it does not alter audio or control Auto-Tune.";
-    juce::SystemClipboard::copyTextToClipboard (text);
-    visualStatusLabel.setText ("ENGINEER REPORT COPIED", juce::dontSendNotification);
+    footerStatus.setText ("STATUS: SETTINGS COPIED", juce::dontSendNotification);
 }

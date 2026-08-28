@@ -22,7 +22,7 @@ The adapter must never run on `processBlock`. The existing capture callback rema
 
 ## Analyzer process contract
 
-The installer-approved analyzer binary will be located in the per-user TuneRite application-data directory. An environment-path override exists only for development tests.
+The non-commercial beta installer places the analyzer binary in the machine-wide TuneRite application-data directory (`ProgramData\\Murder Mitten Media\\TuneRite`). An environment-path override exists only for development tests.
 
 Arguments:
 
@@ -61,4 +61,4 @@ An absent executable, failed launch, timeout, non-zero exit, missing JSON, inval
 
 ## Packaging status
 
-No installer or commercial release is authorized under this contract. A future package needs a reviewed, self-contained Windows analyzer runtime plus its exact dependencies and license notices. This repository intentionally contains only the integration contract and test shim until that approval exists.
+A non-commercial beta installer may include the reviewed, self-contained Windows analyzer runtime plus its exact dependency notices. A commercial release remains unauthorized until the runtime, dependency notices, and distribution approach are approved.

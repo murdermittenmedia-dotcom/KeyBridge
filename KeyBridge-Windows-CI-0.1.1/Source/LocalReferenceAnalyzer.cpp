@@ -117,7 +117,7 @@ namespace tunerite
 
         // This path is intentionally not bundled or packaged until runtime and license
         // approval. It is the future location of a reviewed local analyzer executable.
-        return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+        return juce::File::getSpecialLocation (juce::File::commonApplicationDataDirectory)
             .getChildFile ("Murder Mitten Media")
             .getChildFile ("TuneRite")
             .getChildFile ("TuneRiteReferenceAnalyzer.exe");

@@ -18,6 +18,8 @@ import sys
 from pathlib import Path
 
 import librosa
+import numpy as np
+import soundfile as sf
 
 # bpm-detector's pinned source selects librosa.beat.tempo on current releases.
 # Keep the reference source unchanged and bind that deprecated name to librosa's
@@ -26,7 +28,7 @@ if not hasattr(librosa.beat, "tempo"):
     librosa.beat.tempo = librosa.feature.tempo
 
 # Use only the local bundled package. No network access or host-DAW metadata is used.
-BUNDLE_ROOT = Path(__file__).resolve().parent
+BUNDLE_ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 PACKAGE_ROOT = BUNDLE_ROOT / "bpm_detector"
 if not PACKAGE_ROOT.is_dir():
     raise RuntimeError("Bundled bpm_detector package is missing")
@@ -74,6 +76,14 @@ def main() -> int:
         raise RuntimeError("Private input WAV does not exist")
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
+    # Input evidence is a publication gate, not a replacement detector. It prevents
+    # the reference library's explicit zero-confidence tempo fallback or an undefined
+    # silence chroma from being displayed as a measured result.
+    samples, _ = sf.read(str(input_path), always_2d=False)
+    samples = np.asarray(samples, dtype=np.float64)
+    rms = float(np.sqrt(np.mean(np.square(samples)))) if samples.size else 0.0
+    has_input_evidence = bool(np.isfinite(rms) and rms > 1.0e-4)
+
     analyzer = AudioAnalyzer(sr=22050, hop_length=128)
     analysis = analyzer.analyze_file(
         path=str(input_path),
@@ -93,7 +103,7 @@ def main() -> int:
 
     bpm = finite_number(basic.get("bpm"))
     bpm_confidence = normalized_confidence(basic.get("bpm_confidence"))
-    tempo_valid = bpm is not None and 40.0 <= bpm <= 300.0 and bpm_confidence >= MIN_CONFIDENCE
+    tempo_valid = has_input_evidence and bpm is not None and 40.0 <= bpm <= 300.0 and bpm_confidence >= MIN_CONFIDENCE
     raw_candidates = basic.get("bpm_candidates", [])
     total_votes = sum(max(0, int(votes)) for candidate, votes in raw_candidates if finite_number(candidate) is not None)
     tempo_candidates = [
@@ -107,7 +117,7 @@ def main() -> int:
     parts = key_name.split() if isinstance(key_name, str) else []
     root = NOTE_TO_ROOT.get(parts[0]) if len(parts) == 2 else None
     mode = parts[1].lower() if len(parts) == 2 else ""
-    key_valid = root is not None and mode in {"major", "minor"} and key_confidence >= MIN_CONFIDENCE
+    key_valid = has_input_evidence and root is not None and mode in {"major", "minor"} and key_confidence >= MIN_CONFIDENCE
 
     payload = {
         "schema_version": 1,
