@@ -175,7 +175,7 @@ KeyBridgeAudioProcessorEditor::KeyBridgeAudioProcessorEditor (KeyBridgeAudioProc
 
 void KeyBridgeAudioProcessorEditor::addLabel (juce::Label& label, float size, juce::Justification justification, juce::Colour colour)
 {
-    label.setFont (juce::Font (juce::FontOptions (size, juce::Font::bold)));
+    label.setFont (juce::Font (size, juce::Font::bold));
     label.setJustificationType (justification);
     label.setColour (juce::Label::textColourId, colour);
     label.setInterceptsMouseClicks (false, false);
@@ -447,7 +447,7 @@ void KeyBridgeAudioProcessorEditor::paint (juce::Graphics& g)
         const auto selector = juce::Rectangle<float> (static_cast<float> (margin + 40), 332.0f, static_cast<float> (w - (margin + 40) * 2), 268.0f);
         drawHardwarePanel (g, selector);
         g.setColour (red);
-        g.setFont (juce::Font (juce::FontOptions (14.0f, juce::Font::bold)));
+        g.setFont (juce::Font (14.0f, juce::Font::bold));
         g.drawFittedText ("SELECT INPUT", selector.getCentreX() - 90.0f, selector.getY() + 10.0f, 180.0f, 22.0f, juce::Justification::centred, 1);
         const auto gap = 36.0f;
         const auto cardW = (selector.getWidth() - 88.0f - gap * 2.0f) / 3.0f;
@@ -483,7 +483,7 @@ void KeyBridgeAudioProcessorEditor::paint (juce::Graphics& g)
         const auto settings = juce::Rectangle<float> (static_cast<float> (margin + 40), 334.0f, static_cast<float> (w - (margin + 40) * 2), 160.0f);
         drawHardwarePanel (g, settings);
         g.setColour (red);
-        g.setFont (juce::Font (juce::FontOptions (14.0f, juce::Font::bold)));
+        g.setFont (juce::Font (14.0f, juce::Font::bold));
         g.drawFittedText ("RECOMMENDED AUTO-TUNE SETTINGS", settings.getCentreX() - 180.0f, settings.getY() - 11.0f, 360.0f, 22.0f, juce::Justification::centred, 1);
         const auto cardGap = 12.0f;
         const auto cardW = (settings.getWidth() - 32.0f - cardGap * 5.0f) / 6.0f;
