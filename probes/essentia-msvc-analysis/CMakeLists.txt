@@ -8,6 +8,7 @@ endif()
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+set(ESSENTIA_GENERATED_INCLUDE_DIR "${ESSENTIA_SOURCE_DIR}/src")
 
 add_library(essentia_bpm_key_probe STATIC
     ${ESSENTIA_SOURCE_DIR}/src/algorithms/rhythm/rhythmextractor2013.cpp
@@ -15,7 +16,7 @@ add_library(essentia_bpm_key_probe STATIC
 )
 
 target_include_directories(essentia_bpm_key_probe PRIVATE
-    ${ESSENTIA_SOURCE_DIR}/src
+    ${ESSENTIA_GENERATED_INCLUDE_DIR}
     ${ESSENTIA_SOURCE_DIR}/src/essentia
     ${ESSENTIA_SOURCE_DIR}/src/essentia/streaming
     ${ESSENTIA_SOURCE_DIR}/src/essentia/streaming/algorithms
