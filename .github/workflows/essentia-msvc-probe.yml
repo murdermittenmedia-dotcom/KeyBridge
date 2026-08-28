@@ -2,6 +2,9 @@ name: Essentia MSVC BPM Key Probe
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - probe/essentia-msvc-analysis
 
 jobs:
   probe:
